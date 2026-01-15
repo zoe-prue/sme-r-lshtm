@@ -1,0 +1,595 @@
+---
+title: "SME Practical 2: Computing and Comparing Mortality Rates - 2026"
+author: "Daniel J Carter"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Overview
+
+Welcome to SME Practical 2. In this session, we'll compute and compare mortality rates using data from a 10% random sample of the Whitehall Cohort Study of British civil servants.
+
+This practical looks at:
+
+-   Rates instead of just counts
+-   Poisson regression for rate data
+-   Stratified analysis to examine possible confounding
+-   Effect modification (does the association differ across strata?)
+
+The key epidemiological idea for this practical is that in cohort studies, people are followed for different lengths of time, and we need to account for this when calculating rates.
+
+------------------------------------------------------------------------
+
+# Setup
+
+```{r setup}
+# Load required packages
+library(haven)        # For reading Stata files
+library(gtsummary)    # For regression tables
+library(marginaleffects)  # For predictions and contrasts
+library(lmtest)       # For likelihood ratio tests
+library(tidyverse)    # For data manipulation
+library(here)
+library(emmeans)
+
+# Set options for cleaner output
+options(digits = 3, scipen = 999)
+```
+
+Reminder: You only need to install packages once using `install.packages("packagename")`. However, you must load them with `library()` at the start of each R session.
+
+------------------------------------------------------------------------
+
+# Data Import and Exploration
+
+## Reading Stata files
+
+We'll read the Whitehall dataset, which contains information on mortality in British civil servants followed over time. Remember to change the filepath if you need to.
+
+```{r import}
+# Read the Whitehall dataset
+whitehall <- read_stata(here("sme-2026/data", "whitehal.dta")) |> 
+  mutate(across(where(is.labelled), as_factor))
+
+# Examine the structure
+glimpse(whitehall)
+```
+
+Not in this Whitehall dataset, but in general Stata files use "value labels" - for example, a variable might be coded as 1 and 2, but have labels "High grade" and "Low grade". The pattern `mutate(across(where(is.labelled), as_factor))` automatically converts any Stata labelled variables into R factors with the proper labels. This is much cleaner than converting each variable individually, and it means your tables and graphs will show meaningful names instead of numbers. Use this each time you read in a dta file.
+
+## Understanding the data
+
+```{r explore}
+# Summary statistics
+summary(whitehall)
+
+# View first few rows
+head(whitehall)
+```
+
+Key variables:
+
+-   `timein`, `timeout`: Entry and exit dates (stored as days since 1960-01-01)
+-   `all`: All-cause mortality indicator (0 = survived, 1 = died)
+-   `chd`: CHD mortality indicator (0 = no CHD death, 1 = CHD death)
+-   `grade`: Employment grade (1 = high, 2 = low) - this will be a factor
+-   `agein`: Age at entry in years
+
+Each row is a person, and we know when they entered the study, when they left (either by dying or by end of follow-up), and whether they died.
+
+------------------------------------------------------------------------
+
+# Question 1: Overall Mortality Rate
+
+## Calculate follow-up time
+
+We need to calculate person-years of follow-up. Why are we using person-years? Because people weren't all followed for the same length of time. Imagine:
+
+-   Person A: Followed for 10 years
+-   Person B: Followed for 5 years
+
+If we just counted people (risk), both contribute equally to the measure of effect. But Person A actually was at risk for double the length of Person B, and using person-years accounts for this.
+
+Unlike Stata's `stset` command which does this automatically, R requires us to calculate person-years manually.
+
+```{r followup}
+# Calculate follow-up in years
+whitehall <- whitehall |> 
+  mutate(followup_years = as.numeric(timeout - timein) / 365.25)
+
+# Check the calculation
+summary(whitehall$followup_years)
+```
+
+We subtract entry date from exit date to get days of follow-up, then divide by 365.25 (accounting for leap years) to convert to years. The `as.numeric()` function ensures R treats this as a number rather than a date difference. Look at the summary - people were followed for different lengths of time. This is typical in cohort studies.
+
+------------------------------------------------------------------------
+
+## Calculate overall mortality rate
+
+### Method 1: Manual calculation
+
+We'll calculate the rate and its 95% confidence interval step by step.
+
+```{r rate_manual}
+# Step 1: Count total events and total person-years
+total_deaths <- sum(whitehall$all)
+total_pyears <- sum(whitehall$followup_years)
+
+# Step 2: Calculate rate per 1000 person-years
+rate <- (total_deaths / total_pyears) * 1000
+
+# Step 3: Calculate 95% CI using formula from lectures
+# Standard error on log scale: sqrt(1/deaths)
+# We use the log scale because rates can't be negative
+error_factor <- exp(qnorm(0.975) * sqrt(1 / total_deaths))
+lower_ci <- rate / error_factor
+upper_ci <- rate * error_factor
+
+# Display results in a nicely printed way - cat stands for concatenate
+cat("Total deaths:", total_deaths, "\n")
+cat("Total person-years:", round(total_pyears, 1), "\n")
+cat("Rate per 1000 person-years:", round(rate, 2), "\n")
+cat("95% CI: (", round(lower_ci, 2), ",", round(upper_ci, 2), ")\n")
+```
+
+1.  We sum up all the deaths (the `all` variable where 1 = died)
+2.  We sum up all the person-years we just calculated
+3.  We divide deaths by person-years to get a rate - but multiply by 1000 so it's "per 1000 person-years" (an epidemiological convention that makes numbers easier to read)
+4.  The confidence interval calculation uses the Poisson distribution because counts of rare events (like deaths) follow this distribution
+5.  We use `qnorm(0.975)` to get the z-score for a 95% CI (1.96)
+
+------------------------------------------------------------------------
+
+### Method 2: Using Poisson regression
+
+Now let's do the same thing using regression. This gives us the same answer but is more useful to us later because we can easily add covariates (like you did in STEPH with mutliple linear regression).
+
+Poisson regression is specifically designed for count data (like deaths) when we have varying denominators (like person-years).
+
+```{r rate_poisson}
+# Fit Poisson model for overall rate
+# offset(log(followup_years)) accounts for varying follow-up time
+
+model_overall <- glm(all ~ 1 + offset(log(followup_years/1000)), 
+                     family = poisson, 
+                     data = whitehall)
+
+# Display the model
+summary(model_overall)
+
+# Get the rate with confidence interval
+model_overall |> 
+  tbl_regression(exponentiate = TRUE, intercept = TRUE)
+
+#--- Note: since working with an intercept only model with tbl_regression, we include the 1000 in the offset
+#--- If you don't want to do this, you could use the following code:
+
+
+model_overall |> 
+  broom::tidy(conf.int = TRUE) |> # get a tidy version of the coefficients
+  mutate(across(c(estimate, conf.low, conf.high), \(x) exp(x) * 1000)) |> # exponentiate and multiply
+  select(estimate, conf.low, conf.high) |> 
+  knitr::kable(digits = 2,
+               col.names = c("Rate per 1000", "95% CI Lower", "95% CI Upper"))
+```
+
+What's happening in the code here:
+
+-   `family = poisson` tells R we're analyzing count data with a Poisson model
+-   `~ 1` means "overall" (no covariates yet)
+-   `offset(log(followup_years))` tells R that different people were followed for different lengths of time. We use `log()` because Poisson regression works on the log scale internally
+-   `exponentiate = TRUE` converts from log scale back to the rate scale
+-   `intercept = TRUE` tells tbl_regression to use the intercept (since that's all we have)
+
+Notice that Method 1 (by hand) and Method 2 (Poisson regression) give you the same rate.
+
+------------------------------------------------------------------------
+
+
+# Question 2: Mortality Rates by Age Group
+
+
+While age is continuous, creating categories makes it easier to see patterns and present results in tables - at the cost of losing some information. The `cut()` function divides the continuous age variable into groups. `right = FALSE` means 40-49 includes 40 but not 45 (45 goes in the next group).
+
+```{r age_categories}
+# Create age groups
+whitehall <- whitehall |> 
+  mutate(agecat = cut(agein, 
+                      breaks = c(40, 45, 50, 55, 60, 65, 70),
+                      right = FALSE))
+
+# Check the distribution
+table(whitehall$agecat)
+```
+
+## Estimate rates by age group
+
+To estimate predicted rates per age group, we use the emmeans package. We have to tell R which model we're using, which variables to group by, and use type = "response" to indicate we don't want any transformations.
+
+```{r rates_by_age}
+# Fit Poisson model with age categories
+model_age <- glm(all ~ agecat + offset(log(followup_years)), 
+                 family = poisson, 
+                 data = whitehall)
+
+# Get modelled rates for each age group
+margins_age <- emmeans(model_age, "agecat", type="response", offset=0)
+margins_age
+
+# Display as nicely printed table with rates per 1000 person-years
+margins_age |> 
+  as_tibble() |> 
+  mutate(rate_per_1000 = rate * 1000,
+         conf.low_1000 = asymp.LCL * 1000,
+         conf.high_1000 = asymp.UCL  * 1000) |> 
+  select(agecat, rate_per_1000, conf.low_1000, conf.high_1000) |> 
+  knitr::kable(digits = 2, 
+               col.names = c("Age Group", "Rate per 1000 PY", 
+                           "95% CI Lower", "95% CI Upper"))
+```
+
+### Rate ratios comparing age groups
+
+```{r rate_ratios_age}
+# Display rate ratios (youngest group as reference)
+tbl_regression(model_age, 
+               exponentiate = TRUE,
+               label = list(agecat = "Age at entry (years)"))
+```
+
+The output shows rate ratios comparing each age group to the reference (youngest) group.
+
+------------------------------------------------------------------------
+
+# Question 3: Mortality Rate by Employment Grade
+
+```{r explore_grade}
+# Look at the grade distribution
+table(whitehall$grade)
+
+# Check what type of variable it is
+class(whitehall$grade)
+
+# Convert grade to a factor since it's numeric and not factor yet
+whitehall <- whitehall |> 
+  mutate(grade = factor(grade,
+                        levels = c(1, 2),
+                        labels = c("Low grade", "High grade")))
+
+# Check the levels (which is reference?)
+levels(whitehall$grade)
+```
+
+## Descriptive statistics by grade
+
+Before jumping to regression, let's look at the data descriptively.
+
+```{r descriptive_by_grade}
+# Calculate deaths and person-years by grade
+whitehall |> 
+  group_by(grade) |> 
+  summarise(n = n(),
+            deaths = sum(all),
+            person_years = sum(followup_years),
+            rate_per_1000 = (deaths / person_years) * 1000) |> 
+  knitr::kable(digits = 2)
+```
+
+## Poisson regression by grade
+
+```{r rate_by_grade}
+# Fit Poisson model comparing grades
+model_grade <- glm(all ~ grade + offset(log(followup_years)), 
+                   family = poisson, 
+                   data = whitehall)
+
+# Display as a nice table
+model_grade |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(grade ~ "Employment Grade")
+  )
+```
+
+-   The Estimate column shows the rate ratio (RR)
+-   RR \> 1 would mean low grade has a *higher* mortality rate than high grade
+-   RR \< 1 would mean low grade has a *lower* mortality rate
+-   RR = 1 would mean no difference
+
+# 
+The p-value tells us about the strength of evidence against the null hypothesis that rates are the same in both grades (or equivalently - that there is no association)
+
+------------------------------------------------------------------------
+
+# Question 4: Is Age a Confounder?
+
+Now we need to think about confounding. Confounding is a property of the real world, not of your data. It occurs when there's a third variable (here, age) that is a common cause of exposure and outcome. Age seems likely to be a confounder since it:
+
+1.  Affects the outcome (mortality) - older people die more
+2.  Affects the exposure (grade) - older people are likely to be of higher grade
+
+If both are true in the real world, then age could explain part or all of the association we see between grade and mortality.
+
+--
+
+## Create age categories
+
+First, let's create some new age groups so we can stratify the analysis:
+
+```{r create_agecat}
+# Create age categories
+whitehall <- whitehall |> 
+  mutate(agecat = cut(agein,
+                      breaks = c(40, 50, 60, 70),
+                      labels = c("40-49", "50-59", "60-69"),
+                      right = FALSE))
+
+# Check the distribution
+table(whitehall$agecat)
+```
+
+## Check associations
+
+Remember that the investigations below are not definitively indicative of confounding!
+
+```{r age_by_grade}
+# Age distribution by grade
+whitehall |> 
+  select(agein, agecat, grade) |> 
+  tbl_summary(by = grade)
+
+# Calculate mortality rates by age group
+whitehall |> 
+  group_by(agecat) |> 
+  summarise(
+    n = n(),
+    deaths = sum(all),
+    person_years = sum(followup_years),
+    rate_per_1000 = (deaths / person_years) * 1000
+  ) |> 
+  knitr::kable(digits = 2)
+
+# Poisson model by age
+model_age <- glm(all ~ agecat + offset(log(followup_years)), 
+                 family = poisson, 
+                 data = whitehall)
+
+model_age |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(agecat ~ "Age Group")
+  )
+```
+
+As expected, mortality rates increase with age. This confirms that age affects the outcome. Combined with the previous table (age differs by grade), the data support the hypothesis that there could be real-world confounding from age.
+
+## Age-adjusted rate ratio
+
+Now let's adjust for age by including it in the model. This will give us the grade-mortality association within age groups:
+
+```{r age_adjusted}
+# Model with both grade and age
+model_grade_age <- glm(all ~ grade + agecat + offset(log(followup_years)), 
+                       family = poisson, 
+                       data = whitehall)
+
+# Display results
+model_grade_age |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(
+      grade ~ "Employment Grade",
+      agecat ~ "Age Group"
+    )
+  )
+
+# Compare unadjusted and adjusted rate ratios
+tbl_merge(
+  list(
+    tbl_regression(model_grade, 
+                   exponentiate = TRUE,
+                   include = grade,
+                   label = list(grade = "Employment grade")),
+    tbl_regression(model_grade_age, 
+                   exponentiate = TRUE,
+                   include = grade,
+                   label = list(grade = "Employment grade"))
+  ),
+  tab_spanner = c("**Unadjusted**", "**Adjusted for age**")
+)
+```
+
+-   This is the grade effect holding age constant (within people of the same age, does grade still matter?)
+-   Compare this RR to the unadjusted RR from Question 2
+-   If the RR moved closer to 1, age could have been explaining part of the grade-mortality association
+-   If the RR moved away from 1, age could have been masking part of the association
+
+The table compares unadjusted and age-adjusted rate ratios for employment grade.
+
+Notice the R code here is somewhat complex: we have seen tbl_regression() before for printing results from regression analyses. We do this twice for each of the models that we are examining. We then wrap both tables with list() to tell R that we are working with two objects that form part of one larger whole. Then we use tbl_merge() to display both elements of the list at the same time. Since we have merged two tables, we need to also add a label within tbl_merge() to denote which table is which, which we do with tab_spanner(). Notice the indentation of this code block -- can you see which open brackets match to which close brackets?
+
+------------------------------------------------------------------------
+
+## Stratified analysis
+
+Another way to examine confounding is stratified analysis - looking at the association within each age group separately.
+
+The programming approach to do this uses a "split-apply-combine" strategy: we split the data by age category, fit a separate Poisson model within each category, then combine the results. The nest() function groups data by agecat and puts everything else into a structure called a list-column, which is called 'data'. You can think of a list column like a special column where each cell contains an entire dataframe (one for each age group) rather than a single value. We then use map() to fit a model to each age-specific dataset, extract the results with tidy(), and unnest() to bring everything back into a regular dataframe. Finally, we filter to keep only the grade coefficient (the rate ratio we want) from each age group.
+
+This nesting and unnesting can also be put 'behind the scenes' by first grouping the data, and then putting the model inside `group_modify()`.
+
+```{r stratified}
+# Rate ratios within each age category
+whitehall |> 
+  nest(data = -agecat) |> 
+  mutate(
+    results = map(data, 
+                  ~ glm(all ~ grade + offset(log(followup_years)), 
+                        family = poisson, data = .) |> 
+                    tidy(exponentiate = TRUE, conf.int = TRUE))
+  ) |> 
+  unnest(results) |> 
+  filter(term == "gradeHigh grade") |> 
+  select(agecat, estimate, conf.low, conf.high) |> 
+  knitr::kable(
+    digits = 2,
+    col.names = c("Age Group", "Rate Ratio", "95% CI Lower", "95% CI Upper")
+  )
+
+#--- Avoiding explicit nesting
+whitehall |> 
+  group_by(agecat) |> 
+  group_modify(~ glm(all ~ grade + offset(log(followup_years)), 
+                     family = poisson, data = .x) |> 
+                  tidy(exponentiate = TRUE, conf.int = TRUE)) |> 
+  filter(term == "gradeHigh grade") |> 
+  select(agecat, estimate, conf.low, conf.high) |> 
+  knitr::kable(
+    digits = 2,
+    col.names = c("Age Group", "Rate Ratio", "95% CI Lower", "95% CI Upper")
+  )
+
+
+```
+
+Each row shows the grade-mortality rate ratio within that age group. Do the rate ratios look similar across age groups, or do they vary? This leads us to our next question...
+
+------------------------------------------------------------------------
+
+
+
+Effect modification: *Does the association between grade and mortality differ across age groups?*
+
+This is different from confounding:
+
+-   Confounding: Age explains part of the grade-mortality association (we adjust for it)
+-   Effect modification: The grade-mortality association *itself* differs by age (we report separate estimates)
+
+## Visual examination
+
+First, let's calculate and plot the rates:
+
+```{r plot_rates}
+# Calculate rates by grade and age
+rate_data <- whitehall |> 
+  group_by(agecat, grade) |> 
+  summarise(
+    deaths = sum(all),
+    person_years = sum(followup_years),
+    rate = (deaths / person_years) * 1000,
+    .groups = "drop"
+  )
+
+# Plot
+ggplot(rate_data, aes(x = agecat, y = rate, color = grade, group = grade)) +
+  geom_line() +
+  geom_point(size = 3) +
+  labs(
+    title = "Mortality Rates by Grade and Age",
+    x = "Age Group",
+    y = "Rate per 1000 person-years",
+    color = "Employment Grade"
+  ) +
+  theme_minimal()
+```
+
+## Test for statistical interaction
+
+We can formally test for effect modification by including a statistical interaction term in the model:
+
+```{r interaction}
+# Model with interaction
+model_interaction <- glm(all ~ grade * agecat + offset(log(followup_years)), 
+                         family = poisson, 
+                         data = whitehall)
+
+# Display results
+model_interaction |> 
+  tbl_regression(exponentiate = TRUE)
+```
+
+The terms like `grade * agecat50-59` show how the grade effect *changes* in that age group compared to the reference age group. These are a bit tricky to interpret directly - let's use a likelihood ratio test instead:
+
+```{r lrt_interaction}
+# Likelihood ratio test comparing models with and without statistical interaction
+lrtest(model_grade_age, model_interaction)
+```
+
+-   This test compares the model *with* interaction to the model *without* interaction
+-   The p-value tells us about the strength of evidence against the null hypothesis (that the grade effect is the same in all age groups)
+-   A small p-value (\< 0.05) suggests we have evidence aginst the null hypothesis of no effect modification
+-   The "Df" (degrees of freedom) shows how many additional parameters the interaction adds (2 in this case, for the 3 age groups)
+
+If there IS effect modification:Report the stratified results from earlier - the grade effect differs by age, so give separate estimates for each age group.
+
+If there is NOT effect modification: Report the age-adjusted overall result - one number summarizes the grade effect across all ages.
+
+#
+
+Let's get the rate ratios for each stratum with proper confidence intervals.
+
+We use avg_comparisons() within the marginaleffects package to make comparisons. We first tell comparisons() which model to use (the interaction model), which variables to look at (grade), and which group we want (agecat), as well as to report a ratio (instead of e.g. a difference) that's exponentiated
+
+```{r stratified_rr}
+# Use marginaleffects to get clean comparisons
+# Get grade effect within each age group
+comparisons_stratified <- avg_comparisons(
+  model_interaction,
+  variables = "grade",
+  by = "agecat",
+  comparison = "ratioavg",
+  transform = "exp")
+
+# Display as table
+comparisons_stratified |> 
+  as_tibble() |> 
+  select(agecat, estimate, conf.low, conf.high) |> 
+  knitr::kable(digits = 2,
+               col.names = c("Age Group", "Rate Ratio", 
+                           "95% CI Lower", "95% CI Upper"))
+```
+
+------------------------------------------------------------------------
+
+# Question 6: CHD-Specific Mortality
+
+Let's repeat the analysis for CHD (coronary heart disease) mortality specifically.
+
+```{r chd_analysis}
+# Crude effect of grade on CHD mortality
+model_chd <- glm(chd ~ grade + offset(log(followup_years)), 
+                 family = poisson, 
+                 data = whitehall)
+
+# Get modelled rates
+margins_chd <- emmeans(model_chd, "grade", type = "response", offset = 0)
+margins_chd
+
+# Display rates
+margins_chd |> 
+  as_tibble() |> 
+  mutate(rate_per_1000 = rate * 1000,
+         conf.low_1000 = asymp.LCL * 1000,
+         conf.high_1000 = asymp.UCL * 1000) |> 
+  select(grade, rate_per_1000, conf.low_1000, conf.high_1000) |> 
+  knitr::kable(digits = 2,
+               col.names = c("Grade", "CHD Rate per 1000 PY", 
+                           "95% CI Lower", "95% CI Upper"))
+
+# Rate ratio
+tbl_regression(model_chd, 
+               exponentiate = TRUE,
+               label = list(grade = "Employment grade"))
+```
+
+------------------------------------------------------------------------
+
+# Key R Functions Used
+
+-   `avg_predictions()`: Get predicted rates for each group
+-   `avg_comparisons()`: Get marginal rate ratios stratified by another variable
+-   `tbl_regression()`: Display regression results in formatted tables
+-   `lrtest()`: Likelihood ratio test comparing nested models
+-   `tbl_merge()`: Display multiple model tables side-by-side
