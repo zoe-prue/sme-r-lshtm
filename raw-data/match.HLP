@@ -1,0 +1,29 @@
+Tabulation of matched pairs by an exposure variable
+---------------------------------------------------
+
+^match d xvar set [^in^ range] [^if^ exp]^
+
+Description
+-----------
+For an exposure variable on c levels, match forms a c x c table of 
+matched pairs by the exposure status of the case and the exposure 
+status of the control. The data must be in the form of individual 
+records with one for the case and one for the control.
+
+^d^ is 0 for a control and 1 for a case.
+
+^xvar^ is the name of the exposure variable.
+
+^set^ is the name of the variable which identifies the matched pair.
+
+
+Example
+-------
+
+^match d bf set^
+
+
+Also see
+--------
+
+On-line ^help^ for ^clogit^.

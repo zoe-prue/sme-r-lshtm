@@ -1,0 +1,33 @@
+^Cohort study of risk factors for mortality in an occupational cohort^
+
+Data on risk factors for coronary heart disease (CHD) were collected
+between 1967-69 for a total of 19,183 male civil servants from various
+departments around Whitehall (London). The data were collected by
+self-administered questionnaire and a screening examination. Survey
+participants were identified and flagged at the National Health Service
+Central Registry and a coded copy of the death certificate provided for each
+subsequent death. The data in ^whitehal^ refers to a 10% sample of the
+complete records in the full study.
+
+   ^id^           identity number
+   ^all^          1=death from any cause; 0 otherwise
+   ^chd^          1=death from chd; 0 otherwise
+   ^sbp^          systolic bp at entry (mmHg)
+   ^chol^         cholesterol at entry (mg/dl)
+   ^grade4^       grade of work. 4 levels:
+                  1=admin; 2=professional/executive; 3=clerical; 4=other
+   ^smok^         smoking. 5 levels:
+                  1=never; 2=ex; 3=1-14 cigs/day; 4=15-24; 5=25+
+   ^agein^        age at entry in years
+   ^grade^        grade of work. 2 levels:
+                  1=admin&professional/executive; 2=clerical&other
+   ^cholgrp^      cholesterol at entry. 4 levels:
+                  1=<150; 2=150-199; 3=200-249; 4=>=250
+   ^sbpgrp^       systolic bp at entry. 4 levels:
+                  1=<120; 2=120-139; 3=140-159; 4=>160
+   ^timein^       date of entry (in days since 1/1960)
+   ^timeout^      date of exit  (in days since 1/1960) 
+   ^timedbth^     date of birth (in days since 1/1960) 
+
+
+

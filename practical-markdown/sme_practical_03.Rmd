@@ -1,0 +1,392 @@
+---
+title: "SME Practical 3: Survival Analysis - 2026"
+author: "Daniel J Carter"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Overview
+
+Welcome to SME Practical 3. In this session, we'll learn about survival analysis - a set of methods designed specifically for time-to-event data.
+
+In this practical you'll:
+
+- Create survival objects (telling R about time and events)
+- Make Kaplan-Meier survival curves (visualising survival over time)
+- Conduct a log-rank test (comparing survival between groups)
+
+We'll start with an optional practice example if you want some R practice using ovarian cancer data, then apply everything to the Trinidad and mortality cohort study for the practical itself.
+
+Don't worry if this feels unfamiliar - survival analysis has its own vocabulary, but the concepts build on what you already know from regression!
+
+---
+
+# Setup
+
+Remember to install any new packages!
+
+```{r setup, message=FALSE, warning=FALSE}
+# Load required packages
+library(haven)        # For reading Stata files
+library(survival)     # For survival analysis
+library(survminer)    # For survival plots
+library(gtsummary)    # For regression tables
+library(epitools)     # For rate ratio
+library(tidyverse)    # For data manipulation
+library(here)
+
+
+# Set options
+options(digits = 3)
+```
+
+---
+
+# Optional Part 1: Practice with Ovarian Cancer Data
+
+## Why start with ovarian?
+
+Before tackling the Trinidad data, examine the R code with a simpler example to try to separate out the coding and the concepts. The `ovarian` dataset comes built into R - it's from a clinical trial comparing two treatments for ovarian cancer. It's small (only 26 women) which makes it easy to see what's happening.
+
+```{r load_ovarian}
+# Look at the data
+head(ovarian)
+glimpse(ovarian)
+```
+
+Key variables:
+
+- `futime` - Follow-up time in days (this is our time variable)
+- `fustat` - Status indicator: 1 = died, 0 = still alive at last follow-up (this is our event variable)
+- `rx` - Treatment group: 1 or 2
+- `ecog.ps` - Performance status: 1 = good, 2 = bad
+- `age` - Age in years
+
+Each row is a woman in the trial. We know how long she was followed (`futime`) and whether she died during that time (`fustat`). If `fustat = 0`, she was "censored" - she was still alive at the time of last investigation, but we don't know what happened after that.
+
+---
+
+## Creating a Survival Object
+
+In Stata, you use `stset` to tell Stata about your time and event variables. In R, we create a special "survival object" using the `Surv()` function. Unlike Stata, it doesn't require dates as input; it requires pre-calculated time intervals (so, number of days). In the ovarian dataset, this is already (conveniently...) calculated for you in the variable _futime_. 
+
+Stata's `stset` modifies your dataset and creates new variables. R's `Surv()` creates a new object but leaves your original data unchanged. This is actually nice - you can create multiple survival objects from the same data if needed. Surv() requires an indication of follow up time and an event of interest.
+
+```{r survival_object}
+# Create survival object
+ovarian_surv <- Surv(time = ovarian$futime, event = ovarian$fustat)
+
+# Look at it
+ovarian_surv
+```
+
+Some numbers have a `+` symbol after them, others don't, which indicates censoring. For example, if you see `156+`, that person was last seen at 156 days and was still alive. We don't know if or when they died after that - they're censored at 156 days. These numbers are the equivalent of the _t variable that Stata creates once you stset your dataset.
+
+---
+
+## Survival Tables with survfit()
+
+Now let's calculate survival probabilities using the `survfit()` function. This is the R equivalent of Stata's `sts list`.
+
+### Understanding formulas in R
+
+You've seen formulas before in `lm()` and `glm()`. They always have a tilde (`~`):
+
+```
+outcome ~ predictors
+```
+"
+You can read the `~` as "explained by" or even "as a function of."
+
+For survival analysis:
+- LHS: The survival object (time + event)
+- RHS: Grouping variables
+- When you want overall survival (not split by any groups), the right hand side is just `1`:
+
+
+### Overall survival
+
+```{r survfit_overall}
+# Calculate overall survival
+fit_overall <- survfit(ovarian_surv ~ 1, data = ovarian)
+
+# Look at the basic output
+fit_overall
+```
+
+There were 26 women in the study, 12 women died during follow-up, and half of the women survived at least 638 days (this is median survival time). The median is useful because it tells us: "50% of women lived longer than 638 days." We can't say "average survival" because some women are censored and thus we don't know their final survival time.
+
+### Detailed summary at specific times
+
+```{r summary_time}
+# Summary at 1 year (365.25 days)
+summary(fit_overall, times = 365.25)
+```
+
+Survival = 0.731, which indicates that means 73.1% of women survived at least 1 year.
+
+---
+
+## Kaplan-Meier Plots
+
+We can graphically indicate survival with a Kaplan-Meier plot, using ggsurvplot()
+
+```{r km_plot}
+# Basic KM plot
+
+fit_rx <- survfit(ovarian_surv ~ rx, data = ovarian)
+  
+ggsurvplot(
+  fit_rx,
+  data = ovarian,
+  pval = TRUE,              # Show p-value from log-rank test
+  conf.int = TRUE,          # Show confidence intervals
+  legend.title = "Treatment",
+  legend.labs = c("Treatment 1", "Treatment 2"),
+  xlab = "Time (days)",
+  ylab = "Survival probability"
+)
+```
+
+The y-axis is survival probability, the x-axis is time. Each line shows the survival for one treatment group and the line drops each time someone dies. The marks indicate censoring. Do the curves separate? If one curve is consistently higher, that treatment has better survival. If they cross or overlap a lot, the treatments might be similar. 
+
+---
+
+## Log-Rank Test
+
+The plot suggests whether there's a difference, but we need a formal test. The log-rank test is like a chi-square test for survival curves - it tests whether survival differs between groups.
+
+```{r log_rank}
+# Log-rank test comparing treatments
+survdiff(ovarian_surv ~ rx, data = ovarian)
+```
+
+As with all other chi-square tests, we are comparing the observed and the expected values. Large differences between observed and expected events suggest the groups differ. As always with hypothesis tests, the p-value quantifies the strength of evidence against the null hypothesis of no difference. 
+
+---
+
+# Part 2: Analysis of Trinidad Cohort Data
+
+Now you'll apply everything you've learned to real cohort data. This study followed people over time to examine mortality patterns.
+
+## Load the Trinidad data
+
+Make sure you use trinmlsh17 for this -- otherwise the value labels won't read correctly.
+
+```{r load_trinidad}
+# Read Trinidad dataset
+trinidad <- read_stata(here("sme-2026/data", "trinmlsh.dta")) |> 
+  mutate(across(where(is.labelled), as_factor))
+
+# Examine the data
+glimpse(trinidad)
+head(trinidad)
+```
+
+---
+
+## Create survival object for Trinidad
+
+
+```{r trinidad_surv}
+# Create survival object
+trinidad_surv <- Surv(time = trinidad$years, event = trinidad$death)
+
+# Look at it
+head(trinidad_surv, 20)
+
+# How many events?
+table(trinidad$death)
+```
+
+---
+
+## Overall survival in Trinidad cohort
+
+```{r trinidad_overall}
+# Overall survival
+fit_trinidad <- survfit(trinidad_surv ~ 1, data = trinidad)
+fit_trinidad
+
+#--- Cumulative survival probability at 1, 3, and 5 years
+fit_trinidad |>
+  summary(times = c(1, 3, 5))
+
+#--- Kaplan Meier plot
+ggsurvplot(
+  fit = survfit(trinidad_surv ~ 1, data = trinidad),
+  censor = F,
+  xlab = "Years"
+  )
+```
+
+Now, from smokenum, we'll create a new variable called "smokstatus" that identifies the participants who were active smokers at entry into the study. The variable in the original Stata dataset was coded as: 0 = non-smoker; 1 = ex-smoker; 2 = 1-9 cigs; 3 = 10-19 cigs; 4 = 20-29 cigs; 5 = 30+ cigs 
+
+```{r}
+# Create binary smoking status explicitly using case_when
+trinidad <- trinidad |> 
+  mutate(smokstatus = factor(
+    case_when(
+      smokenum == 0 ~ "non-smoker",
+      smokenum == 1 ~ "non-smoker",
+      smokenum == 2 ~ "active smoker",
+      smokenum == 3 ~ "active smoker",
+      smokenum == 4 ~ "active smoker",
+      smokenum == 5 ~ "active smoker"
+    ),
+    levels = c("non-smoker", "active smoker")
+  ))
+
+# Check the recoding
+table(trinidad$smokenum, trinidad$smokstatus, useNA = "ifany") # show NAs explicitly
+```
+
+Now compare the survival curves of active smokers vs non-smokers and conduct a logrank test.
+
+```{r}
+#--- KM plot stratified
+ggsurvplot(
+  fit = survfit(trinidad_surv ~ smokstatus, data = trinidad),
+  censor = F,
+  conf.int = F,
+  xlab = "Years",
+  legend.title = "Smoking status",
+  legend.labs = c("non-smokers", "active smokers")
+  )
+
+survdiff(trinidad_surv ~ smokstatus, data = trinidad)
+
+```
+
+The p-value indicates the strength of evidence of evidence against the null hypothesis of the same survival in each smoking group.
+
+----
+
+Read in now the mortality17.dta dataset.
+
+```{r}
+# Read mortality dataset
+mort <- read_stata(here("sme-2026/data", "mortality.dta")) |> 
+  mutate(across(where(is.labelled), haven::as_factor))
+
+# Examine the data
+glimpse(mort)
+summary(mort)
+
+```
+
+We now wish to identify people with hypertension (based on systolic blood pressure above 140 mmHg). Then we will generate a Surv() object, and calculate the all-cause mortality rate per 100 person years by hypertension status, just as we did above.
+
+```{r}
+#--- Create hypertension variable
+mort <- mort |> 
+  mutate(hyper = factor(
+    case_when(systolic < 140 ~ "Not hypertensive", 
+              systolic >= 140 ~ "Hypertensive"),
+    levels = c("Not hypertensive", "Hypertensive")
+  ))
+
+#--- Create follow-up time variable
+mort <- mort |> 
+  mutate(followup_years = as.numeric(exit - enter) / 365.25)
+
+#--- Create Surv object
+mortsurv <- Surv(time = mort$followup_years, event = mort$died)
+
+
+```
+
+You are now asked to calculate the all-cause mortality rate per 1000 person-years by hypertension status and to calculate the rate ratio for the association between hypertension and death. They are presented here using 'by hand' calculations from the formulae given in Kirkwood and Sterne.
+
+For an equivalent to _stmh_ we can use the rateratio() function from epitools.
+
+```{r}
+# Calculate rates per 1000 person-years by hypertension status
+rate_table <- mort |> 
+  filter(!is.na(hyper)) |> 
+  group_by(hyper) |> 
+  summarise(
+    deaths = sum(died),
+    person_years = sum(followup_years),
+    rate_per_1000 = (deaths / person_years) * 1000,
+    ci_lower = rate_per_1000 / exp(qnorm(0.975) * sqrt(1/deaths)),
+    ci_upper = rate_per_1000 * exp(qnorm(0.975) * sqrt(1/deaths)),
+    .groups = "drop"
+  )
+
+rate_table |> 
+  knitr::kable(digits = 2,
+               col.names = c("Hypertension", "Deaths", "Person-Years", 
+                           "Rate per 1000", "95% CI Lower", "95% CI Upper"))
+
+# Calculate rate ratio using epitools::rateratio()
+# This is the R equivalent of Stata's stmh command
+# Format: matrix with rows for each group, columns for deaths and person-years
+rate_matrix <- rate_table |> 
+  select(deaths, person_years) |> 
+  as.matrix()
+
+# Calculate rate ratio (hypertensive vs not hypertensive)
+irr <- rateratio(rate_matrix)
+
+# Pull out the estimate from the matrix
+irr$measure |> 
+  as_tibble(rownames = "measure") |> 
+  filter(measure == "2") |> 
+  pull(estimate)
+
+```
+
+The question set asks you to compare survival in people with and without hypertension, first by looking at the Kaplan Meier survival table and then at the Kaplan Meier survival plot, conducting a log-rank test. Question 18 should be omitted here as it is specific to stset in Stata.
+
+```{r}
+
+#--- Cumulative survival at 6-month intervals
+fit_mort <- survfit(mortsurv ~ 1, data = mort)
+summary(fit_mort, times = c(0.5, 1, 1.5, 2, 2.5, 3))
+
+#--- KM plot without CIs
+ggsurvplot(
+  fit = survfit(mortsurv ~ hyper, data = mort),
+  censor = F,
+  conf.int = F,
+  xlab = "Years",
+  # ylim = c(0.7, 1.0), # show only some of the y-axis for clarity if desired
+  legend.title = "Hypertension",
+  legend.labs = c("Hypertensive", "Not Hypertensive")
+  )
+
+#--- KM plot with CIs
+ggsurvplot(
+  fit = survfit(mortsurv ~ hyper, data = mort),
+  censor = F,
+  conf.int = T,
+  xlab = "Years",
+  legend.title = "Hypertension",
+  legend.labs = c("Hypertensive", "Not Hypertensive")
+  )
+
+#--- Cumulative mortality
+ggsurvplot(
+  fit = survfit(mortsurv ~ hyper, data = mort),
+  fun = "event",
+  pval = TRUE,
+  censor = FALSE,
+  xlab = "Years",
+  legend.title = "Hypertension",
+  legend.labs = c("Hypertensive", "Not Hypertensive")
+)
+
+#--- Logrank test
+survdiff(mortsurv ~ hyper, data = mort)
+
+```
+
+# Key R Functions for Survival Analysis
+
+- `Surv(time, event)`: Create a survival object
+- `survfit(formula, data)`: Fit Kaplan-Meier survival curves
+- `ggsurvplot(fit, ...)`: Create high-quality KM plots
+- `survdiff(formula, data)`: Perform log-rank test
+- `summary(survfit_object, times)`: Get survival probabilities at specific times
