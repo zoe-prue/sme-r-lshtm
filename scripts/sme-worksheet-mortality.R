@@ -65,7 +65,7 @@ summary(mortality)
 nrow(mortality)
 # there are 4298 individuals (rows) in the dataset
 
-# 2.Are there missing data for any of the variables? If so, how much?'
+# 2.Are there missing data for any of the variables? If so, how much?
 
 colSums(is.na(mortality))
 # religion = 1 NA

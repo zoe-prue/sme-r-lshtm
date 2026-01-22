@@ -27,6 +27,8 @@ library(lmtest)       # For likelihood ratio tests
 library(tidyverse)    # For data manipulation
 # install.packages("here")
 library(here)
+install.packages("emmeans")
+library(emmeans)
 
 # Set options for cleaner output
 options(digits = 3, scipen = 999) # number of digits used for the whole script
@@ -395,9 +397,10 @@ tbl_merge(
   tab_spanner = c("**Unadjusted**", "**Adjusted for age**")
 )
 
-# the grade effect holding age constant
-# within people of the same age, does employment grade matter?
-# the RR moved away from 1, meaning that age could have been masking part of the association
+# -   This is the grade effect holding age constant (within people of the same age, does grade still matter?)
+# -   Compare this RR to the unadjusted RR from Question 2
+# -   If the RR moved closer to 1, age could have been explaining part of the grade-mortality association
+# -   If the RR moved away from 1, age could have been masking part of the association
 
 ## STRATIFIED ANALYSIS ##
 
@@ -423,6 +426,7 @@ whitehall |>
   )
 
 #--- Avoiding explicit nesting
+
 whitehall |> 
   group_by(agecat) |> 
   group_modify(~ glm(all ~ grade + offset(log(followup_years)), 
@@ -482,6 +486,8 @@ ggplot(rate_data, aes(x = agecat, y = rate, color = grade, group = grade)) +
 # the mortality rate is also higher
 
 # test for statistical interaction - include statistical interaction term in the model
+
+summary(whitehall)
 
 # Model with interaction
 model_interaction <- glm(all ~ grade * agecat + offset(log(followup_years)), # see multiplication here

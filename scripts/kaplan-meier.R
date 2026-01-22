@@ -156,7 +156,7 @@ trinidad <- trinidad |>
     levels = c("non-smoker", "active smoker")
   ))
 
-# Check the recoding
+# Check the recodring
 table(trinidad$smokenum, trinidad$smokstatus, useNA = "ifany") # show NAs explicitly
 
 # compare survival curves of active smokers vs non-smokers and conduct a logrank test
@@ -244,6 +244,8 @@ rate_matrix <- rate_table |>
   select(deaths, person_years) |> 
   as.matrix()
 
+rate_matrix
+
 # Calculate rate ratio (hypertensive vs not hypertensive)
 irr <- rateratio(rate_matrix)
 
@@ -271,7 +273,7 @@ ggsurvplot(
   xlab = "Years",
   # ylim = c(0.7, 1.0), # show only some of the y-axis for clarity if desired
   legend.title = "Hypertension",
-  legend.labs = c("Hypertensive", "Not Hypertensive")
+  legend.labs = c("Not Hypertensive", "Hypertensive")
 )
 
 #--- KM plot with CIs
@@ -281,7 +283,7 @@ ggsurvplot(
   conf.int = T,
   xlab = "Years",
   legend.title = "Hypertension",
-  legend.labs = c("Hypertensive", "Not Hypertensive")
+  legend.labs = c("Not Hypertensive", "Hypertensive")
 )
 
 #--- Cumulative mortality
@@ -304,7 +306,16 @@ survdiff(mortsurv ~ hyper, data = mort)
 ## NOTES ON MISSING UPPER CONFIDENCE INTERVALS
 # upper CI not reached, because median hasn't been reached (due to little deaths), so upper CI = NA
 
-
+# Hi all, 
+# 
+# Just a quick note for those learning in R, the practical 3 has been updated on moodle. 
+# 
+# The labels for hypertension needed to be swapped around in Lines 343-384 to match the data (which is defined in that order in lines 281-298). The KM plots from this section now make intuitive sense!
+#   
+#   Thanks to the student for spotting this, and to all for being patient with these small changes.
+# 
+# Many thanks,
+# Ellen
 
 
 

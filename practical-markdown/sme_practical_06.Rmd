@@ -1,0 +1,479 @@
+---
+title: "SME Practical 6: Analysis of Unmatched Case-Control Studies - 2026"
+author: "Daniel J Carter"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Overview
+
+In this practical, you will learn how to analyze unmatched case-control studies using logistic regression in R. You'll work with data from the Mwanza, Tanzania study on HIV infection conducted in the 1990s. By the end of this session, you should be able to:
+
+- Calculate crude odds ratios and confidence intervals for case-control studies
+- Assess confounding using stratified analysis
+- Test for effect modification (using statistical interaction term)
+- Handle missing data appropriately in epidemiological analyses
+- Explore dose-response relationships
+
+---
+
+# Setup
+
+```{r setup}
+# Load required packages
+library(haven)            
+library(here)
+library(tidyverse)
+library(gtsummary)
+
+
+# Source the Mantel-Haenszel functions
+# Loads the function so that they are ready to use
+source(here("sme-2026/functions", "mh_functions.R")) 
+source(here("sme-2026/functions", "or_function.R"))
+
+# Set options for cleaner output
+options(digits = 3, scipen = 999)
+```
+
+You've seen all these packages before in Practicals 2 and 3 apart from janitor. They're the standard tidyverse approach for epidemiological analysis in R. You may have not yet seen the `source()` function -- this is reading in three new functions that aim to precisely mimic Stata's mhodds and tabodds commands and to calculate ORs easily. The read-in assumes that you have stored these in a subfolder called 'functions'.
+
+---
+
+# Data Import and Preparation
+
+## Reading the Mwanza dataset
+
+The MWANZA.DTA dataset contains data on HIV infection among women in Mwanza, Tanzania. Load the dataset.
+
+```{r import}
+# Import the dataset
+mwanza <- read_stata(here("sme-2026/data", "mwanza.dta")) |> 
+  mutate(across(where(is.labelled), as_factor))
+
+# Examine the structure
+glimpse(mwanza)
+summary(mwanza)
+```
+
+Note: This dataset doesn't have comprehensive value labels in Stata, so we'll create factor labels ourselves using the approach you learned in previous practicals.
+
+---
+
+# Question 1: Generate Appropriate Variables
+
+Recategorize the variables "ed" and "age1" into two new variables:
+
+- `ed2`: 1 = none/adult only, 2 = 1 or more years of formal education
+- `age2`: 1 = 15-24, 2 = 25-34, 3 = 35+ years
+
+Turn these variables into factors and check they were created correctly.
+
+```{r q1_recode}
+# First examine the original variables
+mwanza |> count(ed)
+mwanza |> count(age1)
+
+# Recategorize and label education level
+mwanza <- mwanza |> 
+  mutate(ed2 = factor(
+    case_when(
+      ed == 1 ~ "None/adult only",
+      ed %in% c(2, 3, 4) ~ "≥1 years"),
+    levels = c("None/adult only", "≥1 years")
+  ))
+
+# Recategorize and label age
+mwanza <- mwanza |> 
+  mutate(age2 = factor(
+    case_when(
+      age1 %in% c(1, 2) ~ "15-24",
+      age1 %in% c(3, 4) ~ "25-34",
+      age1 %in% c(5, 6) ~ "35+"),
+    levels = c("15-24", "25-34", "35+")
+  ))
+
+# Check the recoding worked correctly
+mwanza |> count(ed, ed2)
+mwanza |> count(age1, age2)
+```
+
+Also make the case variable into a factor:
+
+```{r q1_case}
+# Make "case" a factor
+mwanza <- mwanza |> 
+  mutate(case = factor(case,
+    levels = c(0, 1),
+    labels = c("Control", "HIV case")
+  ))
+
+# Check
+mwanza |> count(case)
+```
+
+---
+
+# Question 2: Obtain the Unadjusted Odds Ratio for Education
+
+Reproduce the 2×2 table of education (ed2) by HIV status showing counts and percentages.
+
+Calculate the unadjusted odds ratio and 95% confidence interval. How does the output compare with the lecture notes?
+
+
+```{r q2_crosstab}
+# Create 2x2 table with counts
+tab_case <- table(mwanza$case, mwanza$ed2)
+tab_case
+
+# With proportions (by row - showing % within cases and controls)
+
+mwanza |> 
+  
+  # counts cases by education level
+  count(case, ed2) |>  
+  
+  # group calculation going forward by case status
+  group_by(case) |>
+  
+  # calculate % within each case group and create variable which combines n and % and prints in this particular format
+  mutate(percentage = n / sum(n) * 100, 
+         n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  
+  # keep only these selected variables 
+  select(case, ed2, n_pct) |> 
+  
+  # transform dataframe from long format to wide format
+  pivot_wider(names_from = ed2, values_from = n_pct) 
+
+# An important exercise is to run the code line by line so that you understand what each bit of code is doing - you will have to make an edit to the code above to run it line by.
+
+```
+
+ Why do you think we use row percentages here?
+ 
+ Now calculate with the custom calculate_or function (created in the or_function.R script)
+
+```{r}
+# Get OR with custom function
+
+calculate_or(tab_case)
+
+```
+
+
+Now calculate the unadjusted odds ratio using the Mantel-Haenszel method - same result!
+
+```{r q2_unadjusted_or}
+# Calculate unadjusted OR
+mhor(mwanza, "case", "ed2")
+```
+
+Understanding the output:
+
+- The estimate is the odds ratio comparing the odds of being a case for those with "≥1 years" education to "None/adult only"
+- An OR > 1 means higher odds of HIV with more education; OR < 1 means lower odds
+
+Test for association using chi-squared test:
+
+```{r q2_chi_squared}
+# Chi-squared test
+chisq.test(table(mwanza$case, mwanza$ed2))
+
+# Fisher's exact test (for small cell counts)
+fisher.test(table(mwanza$case, mwanza$ed2))
+```
+
+The null hypothesis of the test is that there is no association between education and case status. The p-value indicates the strength of evidence against this null hypothesis. Fisher's exact test is particularly useful for small cell counts, though with this sample size the chi-squared approximation is adequate. In case-control studies, the p-value from the logistic regression (shown in tbl_regression) tests the same hypothesis: is the OR = 1?
+
+```{r optional logistic regression}
+
+# Optional - practical 9 will go in more detail about logistic regression
+# note the similar code to Poisson regression from practical 2
+
+m1 <- glm(case ~ ed2, family = binomial, data = mwanza)
+summary(m1)
+
+tbl_regression(m1,
+exponentiate = TRUE,
+label = list(ed2 = "Education"))
+
+```
+
+
+---
+
+# Question 3: Assessing Whether Age is a Confounder or Effect Modifier
+
+A variable may act as a confounder (a common cause of exposure and outcome) or an effect modifier (where the effect of the exposure on the outcome differs across strata). To assess effect modification, we can examine whether the education-HIV association differs across age groups using stratified analysis and a hypothesis test for effect modification.
+
+## Exploratory stratified analysis
+
+First, let's look at descriptive 2×2 tables within each age stratum:
+
+```{r q3_stratified_tables}
+# Cross-tabulations within each age group
+
+mwanza |> 
+  filter(age2 == "15-24") |> 
+  count(case, ed2) |> 
+  group_by(case) |> 
+  mutate(percentage = n / sum(n) * 100,
+         n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(case, ed2, n_pct) |> 
+  pivot_wider(names_from = ed2, values_from = n_pct) 
+
+
+mwanza |> 
+  filter(age2 == "25-34") |> 
+    count(case, ed2) |> 
+  group_by(case) |> 
+  mutate(percentage = n / sum(n) * 100) |> 
+  mutate(n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(case, ed2, n_pct) |> 
+  pivot_wider(names_from = ed2, values_from = n_pct)
+
+
+mwanza |> 
+  filter(age2 == "35+") |> 
+  count(case, ed2) |> 
+  group_by(case) |> 
+  mutate(percentage = n / sum(n) * 100) |> 
+  mutate(n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(case, ed2, n_pct) |> 
+  pivot_wider(names_from = ed2, values_from = n_pct)
+
+```
+
+## Adjusted analysis
+
+Now let's use the Mantel-Haenszel method to get odds ratios, both unadjusted and adjusted for age:
+
+```{r q3_adjusted}
+# Mantel-Haenszel analysis stratified by age
+mhor(mwanza, "case", "ed2")
+mhor(mwanza, "case", "ed2", strata = "age2")
+```
+
+The adjusted OR is like a weighted average of the age-specific ORs (this is the Mantel-Haenszel estimator). Compare the crude and adjusted estimates:
+
+- If the adjusted OR moves substantially toward 1.0, age explains part of the association
+- If the adjusted OR moves away from 1.0, age was masking part of the association
+- If they're similar, age is not distorting the observed relationship
+
+Note that this does not necessarily mean that age is not a confounder **in the population** even if it does not distort any observed associations in the sample: confounding is not a property of the sample or a property of the data.
+
+Questions:
+
+- What is the M-H adjusted odds ratio for education?
+- Does it provide evidence against the null hypothesis of no association after adjusting for age?
+- Is there evidence of effect modification (do the stratum-specific ORs differ)?
+
+---
+
+# Question 4: Does Religion Confound the Association?
+
+Investigate whether religion (rel) confounds the association between education (ed2) and HIV infection (case):
+
+First, handle missing values in the religion variable (coded as 9):
+
+```{r q4_recode_religion}
+# Recode religion and handle missing values
+mwanza <- mwanza |> 
+  mutate(rel = factor(
+    case_when(
+      rel == 1 ~ "Muslim",
+      rel == 2 ~ "Catholic",
+      rel == 3 ~ "Protestant",
+      rel == 4 ~ "Other",
+      rel == 9 ~ NA_character_
+    )
+  ))
+
+# Check the distribution
+mwanza |> count(rel)
+```
+
+## Check associations
+
+```{r q4_explore_rel}
+# Religion and HIV status
+mwanza |> 
+  filter(!is.na(rel)) |> 
+  count(case, rel) |> 
+  group_by(case) |> 
+  mutate(percentage = n / sum(n) * 100) |> 
+  mutate(n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(case, rel, n_pct) |> 
+  pivot_wider(names_from = rel, values_from = n_pct)
+
+
+# # Now examine association between religion and education 
+mwanza |> 
+  filter(!is.na(rel) & case == "Control") |> 
+  count(ed2, rel) |> 
+  group_by(ed2) |> 
+  mutate(percentage = n / sum(n) * 100) |> 
+  mutate(n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(ed2, rel, n_pct) |> 
+  pivot_wider(names_from = rel, values_from = n_pct)
+
+
+```
+
+Why did we restrict this analysis of the association between religion and education to controls only?
+
+## Unadjusted and adjusted analysis
+
+When assessing confounding, the unadjusted and adjusted ORs must be based on the same individuals. We use `filter(!is.na(rel))` for the unadjusted model to match the adjusted model (which automatically drops missing values). The _cc suffix stands for 'complete cases'
+
+```{r q4_crude_adjusted}
+# Create complete cases dataset
+mwanza_rel_cc <- mwanza |> filter(!is.na(rel))
+
+# Unadjusted OR on complete cases
+mhor(mwanza_rel_cc, "case", "ed2")
+
+# Mantel-Haenszel analysis stratified by religion
+mhor(mwanza_rel_cc, "case", "ed2", strata = "rel")
+```
+
+## Test for effect modification with religion
+
+The test for homogeneity from the mhor() output above tests whether the stratum-specific ORs differ across religion categories.
+
+Questions:
+
+- What are the stratum-specific odds ratios?
+- What is the religion-adjusted odds ratio (from the model without interaction)?
+- Does the adjusted estimate provide evidence against the null hypothesis of no association?
+- Is there evidence of effect modification between religion and education?
+- Draft a table summarizing your findings about whether religion confounds the education-HIV relationship
+
+---
+
+# Question 5: Dealing with Missing Values for a Potential Confounder
+
+Examine whether the number of sexual partners ever (npa) is a confounder:
+
+The variable `npa` is coded: 1 (0-1), 2 (2-4), 3 (5-9), 4 (10-19), 9 (missing).
+
+```{r q5_handle_missing}
+# Replace "9" with NA using na_if()
+mwanza <- mwanza |> 
+  mutate(npa = na_if(npa, 9))
+
+# Check the recoding
+mwanza |> count(npa)
+```
+
+The `na_if()` function: This tidyverse function replaces a specific value with `NA`. It's simpler than using `case_when()` when you only need to convert one value to missing.
+
+## Comparing unadjusted ORs with and without restricting to complete cases
+
+```{r q5_unadj_comparison}
+# Unadjusted OR including all observations (with missing npa)
+mhor(mwanza, "case", "ed2")
+
+# Unadjusted OR restricted to complete cases
+mwanza_npa_cc <- mwanza |> filter(!is.na(npa))
+mhor(mwanza_npa_cc, "case", "ed2")
+```
+
+## Adjusted for number of partners
+
+```{r q5_adjusted_npa}
+# First convert npa to factor with labels
+mwanza <- mwanza |> 
+  mutate(npa_f = factor(npa,
+                        levels = c(1, 2, 3, 4),
+                        labels = c("0-1", "2-4", "5-9", "10-19")))
+
+# Remake complete cases with factor
+mwanza_npa_cc <- mwanza |> filter(!is.na(npa))
+
+# Mantel-Haenszel analysis stratified by npa
+mhor(mwanza_npa_cc, "case", "ed2", strata = "npa_f")
+
+```
+
+Questions to consider:
+
+- Compare the unadjusted ORs with and without missing npa values. Are they different?
+- Compare the unadjusted and adjusted ORs (both on complete cases). Does npa confound the relationship?
+- If we had compared the unadjusted OR (including missing) to the adjusted OR (excluding missing), what might we have incorrectly concluded?
+
+
+---
+
+# Question 6 (Optional): Exploring a Dose-Response Relationship
+
+Test for a dose-response effect of number of sexual partners on HIV infection:
+
+Create a new variable `npa2` with midpoint scores for each category:
+
+```{r q6_recode_npa}
+# Create npa2 with midpoint scores
+mwanza <- mwanza |> 
+  mutate(npa2 = case_when(
+    npa == 1 ~ 0,   # Midpoint of 0-1
+    npa == 2 ~ 3,   # Midpoint of 2-4
+    npa == 3 ~ 7,   # Midpoint of 5-9
+    npa == 4 ~ 15   # Midpoint of 10-19
+  ))
+
+# Check the recoding
+mwanza |> count(npa, npa2)
+```
+
+## Odds ratios treating partners as categorical
+
+First, get ORs for each group compared to the reference:
+
+```{r q6_categorical}
+# Calculate ORs for each partner group vs reference using tabodds
+tabodds(mwanza, "case", "npa2")
+```
+
+
+## Test for departure from linear trend
+
+We test whether the categorical approach (3 df) fits the data better than the linear trend approach (1 df). 
+
+```{r q6_departure}
+# To test for departure from linear trend, we need to compare:
+# Chi-squared for categorical association (3 df)
+# vs Chi-squared for linear trend (1 df, from tabodds output above)
+
+# Chi-squared test for categorical association
+npa_table <- table(mwanza$case, mwanza$npa_f)
+cat_chi2 <- chisq.test(npa_table)$statistic
+cat_chi2
+
+# Get trend chi-squared from tabodds
+trend_result <- tabodds(mwanza, "case", "npa2")
+trend_chi2 <- trend_result$trend_chi2
+
+# Departure test
+departure_chi2 <- cat_chi2 - trend_chi2
+departure_df <- 2  # 3 df categorical - 1 df trend
+departure_p <- 1 - pchisq(departure_chi2, departure_df)
+
+cat("Test for departure from linear trend:\n")
+cat(sprintf("Chi-squared(%d) = %.3f\n", departure_df, departure_chi2))
+cat(sprintf("P-value = %.4f\n", departure_p))
+
+```
+
+The p-value 0.59, so there is insufficient evidence to conclude the relationship between the npa2 and log-odds of HIV departs from linearity. 
+
+---
+
+# Key R Functions Used
+
+- `mhor()`: Mantel-Haenszel odds ratios and test for homogeneity (custom function)
+- `tabodds()`: Odds ratios for ordered exposures with score test for trend (custom function) 
+- `na_if()`: Convert specific values to missing
+- `chisq.test()`: Chi-squared test for association
+- `fisher.test()`: Fisher's exact test for small samples

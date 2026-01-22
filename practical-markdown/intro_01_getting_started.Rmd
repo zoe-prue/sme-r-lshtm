@@ -1,0 +1,182 @@
+---
+title: "Session 1 - Getting Started - 2026"
+author: Daniel J Carter
+---
+
+## Installing R
+
+R is an open-source (i.e. free) alternative to Stata, rapidly growing in popularity. Normally, R is used in conjunction with RStudio, an Integrated Development Environment (IDE) that streamlines the effective use of the software. We are going to install both of these programs now.
+
+R has a steeper learning curve than Stata, but the initial difficulty in learning R is offset by the greater degree of flexibility and capability achievable with the language with more advanced use (i.e. this guide was written and is maintained entirely through R!). Note also that R is in growing demand in both academia and industry and will be a highly useful skill for your epidemiological arsenal. 
+
+The first thing you will need to do is install R from https://cran.r-project.org/ . Under 'Download and Install R', select your operating system (e.g. Mac/Windows) and then select 'base'. This should give you an .exe file to run. 
+
+Once you have installed R on your computer, you will want to then download RStudio Desktop from https://www.rstudio.com/products/rstudio/download .
+
+If this is your initial time setting up RStudio, I strongly suggest navigating to Tools in the upper toolbar then Modify Keyboard Shortcuts. Find 'Insert new chunk', click anywhere in the line, and hold Ctrl-Shift-I - we do this overwriting of the command as the standard keyboard shortcut fails on most UK computers (this is due to UK keyboard layouts conflicting with RStudio defaults). You may also wish to go into Tools, then Global Options, then Appearance to find an R theme that works for you.
+
+---
+
+## Notebooks & Code Chunks
+
+This document with an .Rmd extension is an R Markdown file, which should be opened with RStudio. In the top left of the four panes is the Notebook itself. The majority of your coding will be done here. An R notebook is a document that mixes both text and code, with the code written in 'chunks'. Chunks are a useful way to conceptualise your code - you write one chunk that accomplishes one subtask. You can run an entire chunk by clicking the green triangle in the top right corner. Alternatively, you can run any line within a chunk by placing your cursor anywhere within the line and pressing Ctrl-Enter. Note the difference from Stata here - students often highlight the whole line but this is inefficient in R! Also note that you can have multiple notebooks open at once. You can insert a chunk using the modified Ctrl-Shift-I shortcut.
+
+Below the Notebook pane is the Console. When you run code, its output will appear in the console. You can also code directly in the Console. A useful R workflow is to test your short lines of code directly in the console, and only put code you know works into the R Notebook chunks. It is also useful for doing quick calculations. The > symbol with a blinking cursor indicates the console is ready to receive code. While code runs, the > symbol will disappear, returning when the code is run.
+
+Note: Code written directly in the Console is not saved. Always write important code in your notebook chunks!
+
+> EXERCISE: Run the first chunk of code below by placing your cursor on the line and pressing Ctrl-Enter. Where does the output appear? 
+
+```{r}
+2+2
+```
+
+
+> EXERCISE: Calculate 347 divided by 3 in the Console (bottom left) pane. What has R done in the display?
+
+> EXERCISE: Insert a chunk that performs the same calculation below this text.
+
+> CHALLENGE EXERCISE: Compute the exact area of a circle with radius 9 in the above chunk.
+
+The top right pane contains the Environment pane. In R, like other programming languages, we can assign values to objects (casually, an object is something we can work with, like a dataset or a variable). For example, we might want to assign the value of 4 to the letter x. 
+
+### The Assignment Operator
+
+In R we do this with the assignment operator <- . This arrow says take the value on the right, and assign it to the object on the left. 
+
+Why use <- instead of =? 
+
+While = also works for assignment in R, <- is preferred because:
+- It makes the direction of assignment clear (right to left)
+- It avoids confusion with = used in other contexts (that we'll see later)
+- It's the R community standard
+
+In the chunk below, there are several comments, which are annotations to code. They start with a 'hashtag' and anything after that is known to R to be an annotation instead of a piece of code until the next line.
+
+> EXERCISE: Run the first line of the chunk below. What changes? Now run the second line. Where does the output appear? 
+
+```{r}
+#--- Assign the value 4 to the object x
+x <- 4 #--- First line
+x #--- Second line
+```
+
+
+> EXERCISE: Add a line to the chunk of code above that assigns the value of 1899 (when LSHTM was founded) to a new object 'year'. Use R and this new object to calculate how many years it has been since LSHTM was founded. 
+
+In the exercise above, you are asked to assign a 'value' to an 'object'. An 'object' is a data structure that R recognises, the technical details of which are beyond us at the moment, but we may return to this idea. 
+
+The bottom right pane contains a number of tabs. We can see the structure of the current working directory under Files, we can see any plots we have generated in Plots, any packages we have installed (more on this shortly) in Packages, and any Help files we might want.
+
+---
+
+## Packages
+
+Essential for interacting with R, packages are a collection of user-made functions to carry out particular tasks. A function can be as simple as returning a mean of some data, or as complex as processing data and running a statistical algorithm. The key intuition is that functions are collections of code that can execute a particular task. Functions normally take one or more objects as inputs and provide one or more objects as outputs. The collection of functions included in R before loading any packages is called 'Base R'.
+
+To load the functions in a given package, we first have to install the package. We do this using the install.packages() function. Run the line of code that installs the tidyverse package below by removing the # at the start of the second line to 'uncomment' the code. R will install the package to a default directory on your computer. If any dialogue box prompts you to 'set up a personal library instead', click yes. 
+
+Much like the way a sentence is structured, functions act like verbs in R. They are 'doing words' that tell R what it is that you'd like to do to a given object. Objects function like nouns and things are done to them. Note that sometimes functions take extra arguments that describe how to apply the function, like adverbs or adjectives. 
+
+> EXERCISE: In the code below, identify the function (verb), the object (noun), and the argument (adjective). 
+
+```{r}
+#--- Install the package
+# install.packages("tidyverse", dependencies = TRUE)
+```
+
+Once we have the package installed, we must load the functions from this library so we can use them within R. Packages once installed will sit on your computer so you only ever need to install them on the same machine once. It would be a lot of work for R to include every function from every package, so once per session you will need to load the libraries to tell R which functions you need. Load the library with the below code. Remember to uncomment by deleting the # symbol from the second line.
+
+```{r, echo = F}
+#--- Load library
+# library(tidyverse)
+```
+
+The tidyverse contains a number of highly useful functions for visualising, summarising, tidying, and modelling data - the four things we will be doing over the course of this practical intro. We also need some data to get going with so let's install the gapminder package which comes with some built in data:
+
+> EXERCISE: Install the 'gapminder' package and load its library. What do you need to add in the chunk below?
+
+```{r, include = F, echo=FALSE}
+library(gapminder)
+```
+
+Once you have installed both the tidyverse and gapminder packages and loaded their libraries, run the following line of code to find out what the average life expectancy in Europe in 2007 was. Take a second to hypothesise intuitively what each line of this code is doing - we will explore these functions in due course.
+
+Note on pipes: You will see `|>` (the native R pipe, introduced in R 4.1) used throughout these materials. You may also encounter `%>%` (the magrittr pipe) in older or other code - they work almost identically for our purposes.
+
+> EXERCISE: Run the code below and find out what the average life expectancy in Asia is in 2007.
+
+```{r, results = F}
+#--- Find out the average life expectancy in 2007 by continent
+gapminder |> 
+  filter(year == 2007) |> 
+  group_by(continent) |> 
+  summarise(mean = mean(lifeExp))
+```
+---
+
+## Troubleshooting Common Issues
+
+As you begin working with R, you may encounter some common errors. Here are solutions to the most frequent problems:
+
+### Package Installation Failures
+
+Problem: `install.packages()` fails with an error about permissions or unable to access repository.
+
+Solutions:
+- Try setting up a personal library when prompted
+- Check your internet connection
+- Try a different CRAN mirror in the code: `install.packages("tidyverse", repos = "https://cloud.r-project.org")`
+- On Windows, run RStudio as Administrator
+
+### Working Directory Issues
+
+Problem: R can't find your data file even though you can see it in your folder.
+
+Solutions:
+- Check where R is looking by running: `getwd()`
+- Make sure your .Rmd file and data file are in the same parent folder
+- Use R Projects to automatically set the working directory (covered in intro_06)
+
+### Case Sensitivity
+
+Problem: Error says object or function not found even though you typed it correctly.
+
+Solution: R is case-sensitive! 
+
+- `Data` is different from `data`
+- `Summarise` won't work - it needs to be `summarise` (British spelling in tidyverse!)
+
+
+### Package Loading Errors
+
+Problem: `library(tidyverse)` gives an error saying package not installed.
+
+Solution: You must install packages before loading them:
+
+```{r, eval = FALSE}
+# Install first (only once per computer):
+install.packages("tidyverse")
+
+# Then load (once per R session):
+library(tidyverse)
+```
+
+### Function Conflicts
+
+Problem: Warning message about "masked functions" when loading packages.
+
+Solution: This is normal! When two packages have functions with the same name, the most recently loaded package takes precedence. If you need the other version, use `package::function()`:
+
+```{r, eval = FALSE}
+# Use filter from dplyr package (not stats package):
+dplyr::filter(data, condition)
+```
+
+### Getting More Help
+
+- Use `?function_name` in Console to see help files
+- Google your error message - R has an excellent online community
+- Check Stack Overflow for similar questions
+- Prompt Claude to see if it has any suggestions
+- Ask your instructors or classmates!

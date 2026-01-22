@@ -1,0 +1,164 @@
+---
+title: "Session 5b - Modelling Data - Solutions"
+---
+
+# Modelling Data
+
+We can use regression to determine the relationship between two variables. The essential idea behind regression is that we model our observed data with a simpler representation. Let's see a visual example using the sdg dataset.
+
+```{r}
+sdg <- read_csv("./data/sdg.csv")
+```
+
+## Final Exercise
+
+We are now going to put together everything that you have learned in one big final exercise. We will build everything up in stages.
+
+We are going to use the gapminder data in the dslabs package to explore a phenomenon known as the ecological fallacy. We want to investigate the question of how infant survival rate is related to the average number of dollars per day that someone lives on. This is designed to be hard! Take your time - you have all the skills you need to complete this!
+
+> Step 1: Install the dslabs package. Load its library. Ensure you also have loaded the gtsummary and tidyverse packages.
+
+```{r}
+library(dslabs)
+```
+
+> Step 2: Assign the gapminder dataset (called gapminder) to an object called gap
+
+```{r}
+gap <- gapminder
+```
+
+> Step 3: Add a new column to represent "dollars per person per day" using GDP and population. Then, for easier plotting, Restrict the gap dataset to the year 2010. Remember to reassign gap.
+
+```{r}
+gap <- gap |>
+  mutate(dollars.pp.pd = (gdp/population)/365.25) |> 
+  filter(year == "2010")
+```
+
+> Step 4: Using mutate(), case_when(), and %in%, create a new variable called group with nine levels: "Western Europe, North America, Aus/NZ", "Eastern Europe", "Western & Central Asia", "Northern Africa", "Sub-Saharan Africa", "East Asia", "Southern Asia","Latin America", and "Pacific Islands". (Hint: summary() first!). Some code is supplied to ease your typing.
+
+```{r}
+hic <- c("Australia and New Zealand", "Western Europe", "Northern Europe", "Northern America", "Southern Europe")
+ee <- c("Eastern Europe")
+wca <- c("Central Asia", "Western Asia")
+ssa <- c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa")
+ea <- c("Eastern Asia", "South-Eastern Asia")
+la <- c("Caribbean", "Central America", "South America")
+pa <- c("Melanesia", "Micronesia", "Polynesia")
+
+gap <- gap %>% mutate(group = case_when(
+  region %in% hic ~ "Western Europe, North America, Aus/NZ",
+  region == "Eastern Europe" ~ "Eastern Europe",
+  region %in% wca ~ "Western & Central Asia",
+  region == "Northern Africa" ~ "Northern Africa",
+  region %in% ssa ~ "Sub-Saharan Africa",
+  region %in% ea ~ "East Asia",
+  region == "Southern Asia" ~ "Southern Asia",
+  region %in% la ~ "Latin America",
+  region %in% pa ~ "Pacific Islands"))
+```
+
+> Step 5: Convert the group variable to a factor and cross tabulate it with continent to check the reassignation worked
+
+```{r}
+gap <- gap |> mutate(group = as.factor(group))
+
+gap |> select(group, continent) |> tbl_summary(by = continent)
+```
+
+> Step 6: Get summary statistics for infant mortality, gdp, and dollars per day using summary(). Get the mean log (base 10!) dollars per day and the mean infant survival rate by group. To get the infant survival rate, you will have to calculate it according to the equation below, where the sigma stands for sum. The logarithm function is log10(). Hint: (filter, group_by, mutate, summarise)
+
+$$ Surv = 1 - \left( \Sigma(\frac{mort}{1000 \cdot pop}) / \Sigma(pop) \right) $$
+
+```{r}
+summary(gap$infant_mortality)
+summary(gap$dollars.pp.pd)
+
+gap |> 
+  drop_na() |> # could also filter() here to remove only NAs for relevant variables
+  group_by(group) |> 
+  mutate(deaths.per.1000 = sum(infant_mortality/(1000*population))) |> 
+  summarise(log.dpd = mean(log10(dollars.pp.pd), na.rm = T),
+            inf.surv = 1 - sum(infant_mortality/1000*population)/sum(population))
+
+
+```
+
+> Step 7: Pipe the above summary data into a call to ggplot using geom_point(). Colour the points and adjust the size of the points appropriately.
+
+```{r}
+gap |> 
+  drop_na() |> # could also filter() here to remove only NAs for relevant variables
+  group_by(group) |> 
+  mutate(deaths.per.1000 = sum(infant_mortality/(1000*population))) |> 
+  summarise(log.dpd = mean(log10(dollars.pp.pd), na.rm = T),
+            inf.surv = 1 - sum(infant_mortality/1000*population)/sum(population)) |> 
+  ggplot(aes(x = log.dpd, y = inf.surv, color = group)) +
+  geom_point() +
+  theme_bw()
+
+
+```
+
+There is a clear relationship from the plot. Let's try plotting all the data.
+
+> Step 8: Save the summarised data from step 6 into a new dataset. Conduct a linear regression to see the change in survival expected from log(1) dollar a day more.
+
+```{r}
+gap.sum <- gap |> 
+  drop_na() |> # could also filter() here to remove only NAs for relevant variables
+  group_by(group) |> 
+  mutate(deaths.per.1000 = sum(infant_mortality/(1000*population))) |> 
+  summarise(log.dpd = mean(log10(dollars.pp.pd), na.rm = T),
+            inf.surv = 1 - sum(infant_mortality/1000*population)/sum(population))
+
+lm(inf.surv*100 ~ log.dpd, gap.sum) |> tbl_regression()
+
+```
+
+We know that each log-dollar represents 10x more dollars. For every 10x more dollars, how many % more infants do we expect to survive?
+
+> Step 8: Plot the country-level data in the same way. Remember to plot log10 dollars. What do you notice? Note that now our survival function is just:
+
+$$ Surv = 1 - (mort/1000) $$
+
+```{r}
+gap |> 
+  drop_na() |> # could also filter() here to remove only NAs for relevant variables
+  ggplot(aes(x = log10(dollars.pp.pd), y = (1- (infant_mortality/1000)), color = group)) +
+  geom_point() +
+  theme_bw()
+```
+
+> Step 9: Using the above code, put a line through each group (e.g. fit a linear regression through each group) and display the new plot.
+
+```{r}
+gap |> 
+  drop_na() |> # could also filter() here to remove only NAs for relevant variables
+  ggplot(aes(x = log10(dollars.pp.pd), y = (1- (infant_mortality/1000)), color = group)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  theme_bw()
+
+```
+
+> Step 10: For every 10x more dollars in Sub-Saharan Africa, what % more infants will survive? What about in Western Europe?
+
+```{r}
+gap |> 
+  filter(group == "Sub-Saharan Africa") |> 
+  lm((1- (infant_mortality/1000))*100 ~ log10(dollars.pp.pd), data = _ ) |> 
+  tbl_regression()
+
+gap |> 
+  filter(region == "Western Europe") |> 
+  lm((1- (infant_mortality/1000))*100 ~ log10(dollars.pp.pd), data = _ ) |> 
+  tbl_regression()
+```
+
+> Step 11: What do you conclude about the relationship between dollars per day and survival? Discuss with those around you.
+
+This concludes the introduction to R course - well done for making it this far! You've successfully gained a lot of skill in visualising, summarising, tidying, and modelling data, which will equip you well for the rest of your courses at LSHTM :)
+
+Please direct any feedback at daniel.carter1@lshtm.ac.uk -- happy R-ing!
