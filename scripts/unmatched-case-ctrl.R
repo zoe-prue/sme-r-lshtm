@@ -12,6 +12,7 @@
 # - Handle missing data appropriately in epidemiological analyses
 # - Explore dose-response relationships
 
+# THEY WILL GET BACK TO US WITH A NEW MHOR FUNCTION THAT CALCULATES P-VALUE
 
 ###################################
 # library calls

@@ -1,0 +1,294 @@
+---
+title: "Statistical Methods in Epidemiology - Session 8 Practical"
+subtitle: "Likelihood"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+---
+
+Point of this practical is not for use analyzing data, but rather to understand these concepts and visualize them
+Below is an R Markdown setup chunk to set default parameters for display - for more info on setup chunks, see intro_06
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 6
+)
+```
+
+## Introduction
+
+In this practical you will use four functions to explore exact and approximate likelihoods:
+
+-   `blik()` - binomial likelihood
+-   `plik()` - Poisson likelihood
+-   `bloglik()` - binomial log-likelihood
+-   `ploglik()` - Poisson log-likelihood
+
+Note that these functions are not intended for analysing data - their purpose is only to help you to explore the idea of likelihood.
+
+These functions were originally written as Stata ado commands and have been converted to R for this practical. The R functions are stored in separate files and need to be loaded using the `source()` function.
+
+The `source()` function in R reads and executes code from external files. It is generally good R practice to keep functions that you have written yourself separate from your analysis scripts. You will presently not need to write your own functions, but as your analysis gets more complex, for example, in your summer projects, this might be handy to consider. A general heuristic is that if you are copy-pasting the same code more than three times - you should write a function for it. More on this in intro_06.
+
+If you are using the recommended project structure from intro_06, I suggest you keep the functions in a folder called 'functions' and save any plots (if you want to keep them) to a folder named 'outputs'.
+
+### Loading Required Packages and Functions
+
+```{r load-packages}
+# Load required packages
+library(tidyverse)  
+library(patchwork)  # For combining multiple plots - might need to install!
+library(here)       
+```
+
+```{r source-functions}
+# Source the likelihood functions
+# Adjust these paths to where you saved the function files
+
+# If you saved them in a "functions" subfolder:
+# source(here("functions", "blik_function.R"))
+# source(here("functions", "bloglik_function.R"))
+# source(here("functions", "plik_function.R"))
+# source(here("functions", "ploglik_function.R"))
+
+# If files are in the same directory as this Rmd:
+source(here("blik_function.R"))
+source(here("bloglik_function.R"))
+source(here("plik_function.R"))
+source(here("ploglik_function.R"))
+
+```
+
+Note that you do not need to open a dataset for this practical. You provide the data each time you run one of the functions as arguments.
+
+The likelihood ratio compares how likely a particular parameter value is relative to the maximum likelihood estimate (MLE). A likelihood ratio of 1.0 means that parameter value is exactly as likely as the MLE (i.e., it is the MLE). Lower values indicate less plausible parameter values.
+
+The supported range (sometimes called the likelihood-based confidence interval) includes all parameter values where the likelihood ratio is above a certain cutoff. By default, in these functions, the cutoff is set to 0.1465 (just over 1/8), which corresponds to parameter values within roughly 2 log-likelihood units of the maximum. This gives an approximate 95% confidence interval.
+
+In the plots given by these functions:
+- The shaded blue region shows the supported range
+- The vertical black line marks the MLE ($\hat{\pi}$)
+- The horizontal dashed red line shows the cutoff value
+- The black dots mark the MLE and the confidence limits (where the curve crosses the cutoff)
+
+## Question 1
+
+Use `blik()` to plot the likelihood for π when 4 events (d = disease) and 6 non-events (h = healthy) are observed. Do the same for 40 events and 60 non-events, and for 400 events and 600 non-events. Use the `samex` option to keep scales the same. Note how the 95% confidence interval gets smaller as the total number of subjects increases. This means that the parameter is being estimated more precisely.
+
+```{r q1}
+# Create three plots with same x-axis scale
+# Add scale_x_continuous() to ensure all plots use the same x-axis range (0 to 1)
+q1a <- blik(d = 4, h = 6) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.1), limits = c(0, 1))
+q1a
+
+q1b <- blik(d = 40, h = 60) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.1), limits = c(0, 1))
+q1b
+
+q1c <- blik(d = 400, h = 600) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.1), limits = c(0, 1))
+q1c
+
+# Combine plots using patchwork
+combined_plot <- q1a / q1b / q1c
+print(combined_plot)
+
+# Save combined plot
+# ggsave("q1_combined.png", combined_plot, width = 8, height = 12)
+
+# If you have an 'outputs' folder
+# ggsave(here("outputs", "q1_combined.png"), combined_plot, width = 8, height = 12)
+```
+
+
+## Question 2
+
+Try Question 1 with the cut point 0.2585 instead of 0.1465 (option `cut`). What happens to the supported range / confidence interval?
+
+Hint: what is the cutpoint demarcating? Think analogously to confidence intervals...
+
+```{r q2}
+q2 <- blik(d = 4, h = 6, cut = 0.2585) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.1), limits = c(0, 1))
+q2
+
+combined_plot <- q1a / q2
+print(combined_plot)
+```
+
+
+## Question 3
+
+Try using `blik()` with some more extreme splits such as 1:9 or 1:99. Notice how the curve is no longer symmetrical and bell-shaped. We have not specified the x-axis here -- make sure you look to see what they are!
+
+```{r q3}
+q3a <- blik(d = 1, h = 9)
+q3a
+
+q3b <- blik(d = 1, h = 99)
+q3b
+```
+
+
+## Question 4
+
+What happens when the number of events is zero?
+
+```{r q4}
+q4 <- blik(d = 0, h = 100)
+q4
+```
+
+
+## Question 5
+
+Use `plik()` to plot the likelihood for the rate λ when 7 events are observed for 500 person years. Do the same for 70 events and 5000 person years, and for 700 events and 50000 person years. Note how the 95% confidence interval gets smaller as the total number of subjects increases.
+
+```{r q5}
+q5a <- plik(d = 7, y = 500)
+q5a
+
+q5b <- plik(d = 70, y = 5000)
+q5b
+
+q5c <- plik(d = 700, y = 50000)
+q5c
+```
+
+
+## Question 6
+
+Try using `plik()` with a very low number of events.
+
+```{r q6}
+q6 <- plik(d = 1, y = 500)
+q6
+```
+
+
+## Question 7
+
+25 participants are asked to choose between treatments A and B; 15 prefer A and 10 prefer B. Use `blik()` to plot the likelihood for π, that is, the probability of preferring A. What is the most likely value of π?
+
+Use the `null = 0.5` option to obtain the likelihood ratio for the null value π = 0.5 (i.e. equally likely to prefer A or B), and use the `pval` option to obtain an approximate P-value for the test of the null hypothesis that π = 0.5. What are your conclusions?
+
+Note: the green line represents the value of the null hypothesis, and the orange line where the null hypothesis meets the likelihood.
+
+```{r q7}
+q7 <- blik(d = 15, h = 10, null = 0.5, pval = TRUE)
+q7
+```
+
+## Question 8
+
+Repeat Question 7 for 40 participants, of whom 24 prefer A and 16 prefer B. What are your conclusions?
+
+```{r q8}
+q8 <- blik(d = 24, h = 16, null = 0.5, pval = TRUE)
+q8
+```
+
+## Question 9
+
+Repeat Question 7 for 60 participants, of whom 36 prefer A and 24 prefer B. What are your conclusions?
+
+```{r q9}
+q9 <- blik(d = 36, h = 24, null = 0.5, pval = TRUE)
+q9
+```
+
+
+## Log Likelihoods
+
+
+## Question 10
+
+Use `bloglik()` to plot the exact and approximate log likelihoods for π (the probability of event) when there are 4 events and 6 non-events. Make sure you understand the meaning of all of the output.
+
+```{r q10}
+q10 <- bloglik(d = 4, h = 6)
+q10
+```
+
+## Question 11
+
+Use `bloglik()` to plot the exact and approximate log likelihoods for π when 40 events and 60 non-events are observed. What are the 95% confidence limits from the approximation? Notice that the approximation is better than the approximation with 4 events and 6 non-events.
+
+```{r q11}
+q11 <- bloglik(d = 40, h = 60)
+q11
+```
+
+## Question 12
+
+Use `bloglik()` to plot the exact and approximate log likelihoods for π when 400 events and 600 non-events are observed. Notice that the approximation is now almost perfect.
+
+```{r q12}
+q12 <- bloglik(d = 400, h = 600)
+q12
+```
+
+## Question 13
+
+Use `bloglik()` to plot the exact and approximate log likelihoods for π when 2 events and 18 non-events are observed. What are the 95% confidence limits from the approximate log likelihood?
+
+Notice that the approximation is now quite poor because the true log likelihood curve is far from quadratic in shape. Indeed the lower limit is negative, which is an impossible value for the risk.
+
+Repeat with a split of 20:180. You should notice that the approximation is now much better.
+
+```{r q13}
+q13a <- bloglik(d = 2, h = 18)
+q13a
+q13b <- bloglik(d = 20, h = 180)
+q13b
+```
+
+## Question 14
+
+Repeat the first part of Question 13 using the log likelihood plotted against the log odds parameter. What are the 95% confidence limits from the approximate log likelihood? Notice that when using the approximation on the log odds scale the confidence limits for π are always between 0 and 1.
+
+```{r q14}
+q14 <- bloglik(d = 2, h = 18, logodds = TRUE)
+q14
+```
+
+## Question 15
+
+Use `ploglik()` to plot the log likelihood for λ when 7 events are observed for 500 person-years. What are the 95% confidence limits from this approximation?
+
+```{r q15}
+q15 <- ploglik(d = 7, y = 500)
+q15
+
+```
+
+## Question 16
+
+Repeat Question 15 using the log likelihood plotted against the log rate parameter. What are the 95% limits from the approximation?
+
+```{r q16}
+q16 <- ploglik(d = 7, y = 500, lograte = TRUE)
+q16
+```
+
+## Question 17
+
+Use `ploglik()` to plot the log likelihood for λ when there is 1 event for 1000 person years. How good is the approximation? What is the 95% confidence interval for λ?
+
+Repeat using the log rate scale. What is the 95% confidence interval for λ?
+
+```{r q17}
+q17a <- ploglik(d = 1, y = 1000)
+q17a
+q17b <- ploglik(d = 1, y = 1000, lograte = TRUE)
+q17b
+```
+
+
