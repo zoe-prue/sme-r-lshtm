@@ -323,13 +323,22 @@ q17a <- ploglik(d = 1, y = 1000)
 q17a
 
 # How good is the approximation? 
+# it seems like the supported range is narrow, 
+# but the quadratic approximation crosses into negative values (incorrectly)
 # What is the 95% confidence interval for λ?
+# -0.96 to 2.96 
 
 q17b <- ploglik(d = 1, y = 1000, lograte = TRUE)
 q17b
 
 # Repeat using the log rate scale. 
 # What is the 95% confidence interval for λ?
+# -1.96 to 1.96 
+# can take a negative value 
+
+# working with log(odds) rather than risk and the log(rate) 
+# rather than rate improves the approximation 
+# and avoids problem of parameter values that are not meaningful
 
 
 

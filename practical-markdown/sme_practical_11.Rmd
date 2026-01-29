@@ -1,0 +1,233 @@
+---
+title: "SME 2026 - Practical 11"
+author: Daniel J Carter
+---
+
+# Part 1: Mortality
+
+Load packages & functions!
+
+```{r}
+library(haven)
+library(tidyverse)
+library(gtsummary)
+library(here)
+library(lmtest)
+library(marginaleffects)
+library(emmeans)
+
+# Source custom functions
+source(here("FUN/mh_functions.R"))
+source(here("FUN/or_function.R"))
+```
+
+## Data import, exploration, management
+
+Make sure you have the mortality.dta dataset in the data folder (or change the file path)
+
+```{r import-data}
+mortality <- read_dta(here("Data/mortality.dta"))
+mortality <- mortality |> mutate(across(where(is.labelled), as_factor))
+
+glimpse(mortality)
+summary(mortality)
+View(mortality)
+```
+
+Change the outcome explicitly into a labelled factor.
+
+```{r}
+mortality <- mortality |>
+  mutate(died = factor(
+    died,
+    levels = c(0, 1),
+    labels = c("alive", "dead")))
+```
+
+## Data analysis
+
+1. Analyse the association between visual impairment and death, stratifying by sex, using a Mantel-Haenszel approach.
+
+The tbl_strata() function creates separate tables for each level of a grouping variable. In this case, we're asking it to split the mortality data by sex, and then create a separate cross-tabulation for men and women.
+
+The strata = sex argument tells R which variable to split by. The .tbl_fun argument specifies what kind of table to create for each group. The tilde ~ and .x create a mini-function where .x represents the data for each stratum (so first all the males, then all the females). For each group, we create a cross-tabulation showing died against vimp with column percentages.
+
+```{r}
+# 2x2 table
+mortality |> 
+  tbl_cross(row = died, col = vimp, percent = "column")
+
+# Unadjusted OR
+mort_table <- table(mortality$vimp, mortality$died)
+calculate_or(mort_table)
+
+# Stratified 2x2 tables using gtsummary
+mortality |>
+  tbl_strata(
+    strata = sex,
+    .tbl_fun = ~ .x |>
+      tbl_cross(row = died, col = vimp, percent = "column"))
+
+# Ensure variables are factors for mhor() function
+mortality <- mortality |>
+  mutate(
+    died = as.factor(died),
+    vimp = as.factor(vimp),
+    sex = as.factor(sex))
+
+# Stratum-specific OR and MH-OR
+mhor(mortality, outcome = "died", exposure = "vimp", strata = "sex")
+```
+
+2. Fit logistic regression models to estimate the same association, without interaction and with an interaction.
+
+Note: in the model with interaction, the interpretation of adjusted OR changes - it's a *stratum-specific* OR (in the baseline stratum of the other covariate)
+
+```{r}
+# Model without interaction
+glm(died ~ vimp + sex,
+    data = mortality,
+    family = binomial()) |>
+  tbl_regression(exponentiate = TRUE)
+
+
+# Model with interaction
+glm(died ~ vimp * sex, # the asterisk marks the interaction
+    data = mortality,
+    family = binomial()) |>
+  tbl_regression(exponentiate = TRUE)
+
+model_int_sex <- glm(died ~ vimp * sex,
+    data = mortality,
+    family = binomial())
+```
+
+What is the OR for visual impairment adjusted for sex? What is the OR for visual impairment *in men*? What is the OR for women (vs men) *in the visually unimpaired*? What is the interaction term?
+
+3. Calculate the other stratum-specific OR (for women) by making women the baseline group.
+
+```{r}
+mortality <- mortality |>
+  mutate(sex2 = fct_relevel(sex, "Female"))
+
+glm(died ~ vimp * sex2,
+    data = mortality,
+    family = binomial()) |>
+  tbl_regression(exponentiate = TRUE)
+
+### Reset
+# mortality <- mortality |>
+  # mutate(sex2 = fct_relevel(sex, "Male"))
+```
+
+4. Fit a logistic regression model with interaction between visual impairment and sex, and adjust for age
+
+```{r}
+glm(died ~ vimp * sex + agegrp,
+    data = mortality,
+    family = binomial()) |>
+  tbl_regression(exponentiate = TRUE)
+
+model_int_age <- glm(died ~ vimp * sex + agegrp,
+    data = mortality,
+    family = binomial())
+```
+
+5. Calculate stratum-specific ORs for the interaction model, using emmeans. This calculates comparisons of odds ratios between visual impairment groups, separately for men and women. You can switch between pairwise and revpairwise depending on which way you want to calculate the comparison. The vertical bar (|) after vimp stratifies by sex. Results are shown as odds ratios (type = "response") rather 
+than log odds. pluck("contrasts") extracts the comparison table from the full emmeans output.
+
+```{r}
+# Get stratum specific ORs
+emmeans(model_int_age,
+        revpairwise ~ vimp | sex,
+        type = "response") |>
+  pluck("contrasts")
+
+```
+
+
+# Part 2: Mwanza
+
+## Data import, exploration & management
+
+Make sure you have the mwanza.dta dataset in the correct folder, and load it. It contains data on HIV infection among women in Mwanza, Tanzania.
+
+```{r}
+# Import the dataset
+mwanza <- read_dta(here("Data/mwanza.dta"))
+
+glimpse(mwanza)
+summary(mwanza)
+```
+
+6. Use logistic regression to assess whether the association between education (ed) and HIV (case) is modified by age (age1). First, relevel these variables:
+- ed into two groups: "None" and "Any formal education"
+- age1 into three groups: 15-24, 25-34, 34+
+
+```{r}
+# Recategorise and label education level
+mwanza <- mwanza |>
+  mutate(ed2 = as.factor(
+    case_when(
+      ed == 1 ~ "None",
+      ed == 2 ~ "Any formal",
+      ed == 3 ~ "Any formal",
+      ed == 4 ~ "Any formal"
+    )
+  ))
+
+mwanza |> count(ed, ed2)
+
+mwanza <- mwanza |>
+  mutate(age3 = as.factor(
+    case_when(
+      age1 == 1 ~ "15-24",
+      age1 == 2 ~ "15-24",
+      age1 == 3 ~ "25-34",
+      age1 == 4 ~ "25-34",
+      TRUE ~ "34+"
+    )
+  ))
+
+mwanza |> count(age1, age3)
+
+```
+
+Now use MH and logistic regression to assess for statistical interaction. Is there evidence of statistical interaction between age and education?
+
+```{r}
+# Undjusted OR
+mwanza_table <- table(mwanza$ed2, mwanza$case)
+calculate_or(mwanza_table)
+
+# Ensure variables are factors for mhor() function
+mwanza <- mwanza |>
+  mutate(
+    case = as.factor(case),
+    ed2 = as.factor(ed2),
+    age3 = as.factor(age3)
+  )
+
+# Stratum-specific OR and MH-OR
+mhor(mwanza, outcome = "case", exposure = "ed2", strata = "age3")
+
+# Logistic regression without interaction
+mod_noint <- glm(case ~ ed2 + age3,
+                     data = mwanza,
+                     family = binomial())
+
+# Logistic regression with interaction
+mod_int <- glm(case ~ ed2 * age3,
+                      data = mwanza,
+                      family = binomial())
+lrtest(mod_noint, mod_int)
+```
+
+Use emmeans to calculate age-specific ORs for the association between education and HIV.
+
+```{r}
+emmeans(mod_int,
+        pairwise ~ ed2 | age3,
+        type = "response") |>
+  pluck("contrasts")
+```

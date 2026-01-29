@@ -1,0 +1,245 @@
+---
+title: "SME 2026 - Practical 10"
+author: Daniel J Carter
+---
+
+# Part 1: Mortality
+
+Load packages & functions!
+
+```{r}
+library(haven)
+library(tidyverse)
+library(gtsummary)
+library(here)
+library(lmtest)
+
+# Source custom functions
+source(here("sme-2026/functions/mh_functions_updated.R"))
+source(here("sme-2026/functions/or_function.R"))
+```
+
+## Data import, exploration, management
+
+Make sure you have the mortality.dta dataset in the data folder (or change the file path)
+
+```{r import-data}
+mortality <- read_dta(here("sme-2026/data/mortality.dta"))
+mortality <- mortality |> mutate(across(where(is.labelled), as_factor))
+
+glimpse(mortality)
+summary(mortality)
+View(mortality)
+```
+
+## Data analysis
+
+1. Does onchocercal infection appear to be associated with death?
+
+```{r}
+# Cross-tabulate "died" and "mfpos"
+# tbl_cross() creates cross-tabulations with row/column percentages
+mortality |> 
+  tbl_cross(row = died, col = mfpos, percent = "row")
+```
+
+Run a logistic regression model to estimate the crude OR for onchocercal infection.
+
+```{r}
+# Logistic regression
+glm(died ~ mfpos,
+    data = mortality,
+    family = binomial()) |>
+  tbl_regression(exponentiate = TRUE)
+
+# Compare: calculate OR from 2x2 table
+mort_table <- table(mortality$mfpos, mortality$died)
+calculate_or(mort_table)
+```
+
+
+2. 
+
+Let's check if age is a potential confounder. Is our exposure (onchocerchal infection) somehow associated with age?
+
+```{r}
+# Cross-tabulate mfpos against agegrp
+mortality |> 
+  tbl_cross(row = agegrp, col = mfpos, percent = "column")
+```
+
+3.
+
+Now stratify by age group to check whether the association is changing.
+
+```{r}
+# Stratified 2x2 tables
+mortality |>
+  filter(agegrp == "15-34") |> 
+  tbl_cross(row = died, col = mfpos, percent = "column")
+
+mortality |>
+  filter(agegrp == "35-54") |> 
+  tbl_cross(row = died, col = mfpos, percent = "column")
+
+mortality |>
+  filter(agegrp == "55-64") |> 
+  tbl_cross(row = died, col = mfpos, percent = "column")
+
+mortality |>
+  filter(agegrp == "65+") |> 
+  tbl_cross(row = died, col = mfpos, percent = "column")
+```
+
+Let's get a summary estimate of the association between our exposure and our outcome, accounting for age. First, let's do it non-parametrically with Mantel-Haenszel.
+
+```{r}
+# Ensure variables are factors for mhor() function
+mortality <- mortality |>
+  mutate(
+    died = as.factor(died),
+    mfpos = as.factor(mfpos),
+    agegrp = as.factor(agegrp)
+  )
+
+# Mantel-Haenszel OR and chi2 test
+mhor(mortality, outcome = "died", exposure = "mfpos", strata = "agegrp")
+```
+
+4.Now let's do the same but with logistic regression.
+
+```{r}
+# Logistic regression with a confounder
+glm(died ~ mfpos + agegrp,
+    data = mortality,
+    family = binomial()) |> 
+  tbl_regression(exponentiate = TRUE)
+```
+
+6 + 7. Now let's run a more complex model, that also includes visual impairment (vimp). Could onchocercal infection appear to confound the association between visual impairment and odds of death? What is the likely confounding structure?
+
+```{r}
+# Logistic regression with two confounders
+glm(died ~ vimp + mfpos + agegrp,
+    data = mortality,
+    family = binomial()) |> 
+  tbl_regression(exponentiate = TRUE)
+```
+
+8. Perform a likelihood ratio test of the H0 that, after accounting for age and onchocercal infection, there is no association between visual impairment and odds of death. The lrtest() function from the lmtest package compares nested models by testing whether the more complex model provides a better fit to the data.
+
+```{r}
+# Create the first model with all confounders
+model_adj <- glm(died ~ vimp + mfpos + agegrp,
+                               data = mortality,
+                               family = binomial())
+
+# Create a simpler regression without the exposure
+model_noexp <- glm(died ~ mfpos + agegrp,
+                  data = mortality,
+                  family = binomial())
+
+# Likelihood ratio test
+lrtest(model_adj, model_noexp)
+
+```
+
+
+# Part 2: Mwanza
+
+## Data import, exploration & management
+
+Make sure you have the mwanza.dta dataset in the correct folder, and load it. It contains data on HIV infection among women in Mwanza, Tanzania.
+
+```{r}
+# Import the dataset
+mwanza <- read_dta(here("sme-2026/data/mwanza.dta"))
+
+View(mwanza)
+glimpse(mwanza)
+summary(mwanza)
+```
+
+The ed variable represents education but it's represented in four different categories. We need to transform it into a binary variable.
+
+```{r}
+# Tabulate all possible values of ed
+mwanza |> count(ed)
+
+# Recategorise and label education level
+mwanza <- mwanza |>
+  mutate(ed2 = as.factor(
+    case_when(
+      ed == 1 ~ "None",
+      ed == 2 ~ "Any formal",
+      ed == 3 ~ "Any formal",
+      ed == 4 ~ "Any formal"
+    )
+  ))
+
+# Check it worked 
+mwanza |> count(ed, ed2)
+```
+
+11. Cross-tabulate binary education against HIV infection and get the crude OR.
+
+```{r}
+# 2x2 table with crude OR
+mwanza |> 
+  tbl_cross(row = case, col = ed2)
+
+# Calculate crude OR
+mwanza_table <- table(mwanza$ed2, mwanza$case)
+calculate_or(mwanza_table)
+```
+
+12. We need to use the religion variable, but let's make sure that there are no missing values first.
+
+```{r}
+mwanza |> count(rel)
+
+# Replace rel "9" with "NA"
+mwanza$rel <- na_if(mwanza$rel, 9)
+```
+
+13. Estimate the OR for HIV/education adjusted for religion, using the Mantel-Haenszel approach
+
+```{r}
+# Ensure variables are factors for mhor() function
+mwanza <- mwanza |>
+  mutate(
+    case = as.factor(case),
+    ed2 = as.factor(ed2),  # Already factor but explicit is safer (!)
+    rel = as.factor(rel)
+  )
+
+# M-H OR
+mhor(mwanza, outcome = "case", exposure = "ed2", strata = "rel")
+```
+
+
+14. Let's do the same with logistic regression
+
+```{r}
+# Create a model controlling for religion
+model_rel <- glm(case ~ ed2 + rel,
+                        data = mwanza,
+                        family = binomial())
+tbl_regression(model_rel, exponentiate = TRUE)
+```
+
+
+15. Perform a LRT on the null hypothesis that, after controlling for religion, there is no association between education and HIV status.
+
+```{r}
+# Create an unadjusted model excluding the missing value in the religion variable
+model_unadj <- mwanza |>
+  drop_na(rel) |>
+  glm(case ~ ed2,
+      data = _,
+      family = binomial())
+
+# LRT
+lrtest(model_rel, model_unadj)
+```
+

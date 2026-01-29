@@ -1,0 +1,253 @@
+---
+title: "SME Practical 9: Logistic Regression (Basics) - 2026"
+author: "Daniel J Carter"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Overview
+
+By the end of this practical, students will be able to:
+
+- Use tables and odds ratio calculations for estimating odds and odds ratios in a cohort study with fixed follow-up time
+- Use logistic regression to compare two or more groups in an unadjusted analysis
+- Analyze exposures with more than 2 categories using categorical variables
+- Use the likelihood ratio test to compare nested models
+- Assess confounding by comparing unadjusted and adjusted odds ratios
+
+---
+
+# Setup
+
+```{r setup}
+# Load required packages
+library(haven)
+library(gtsummary)
+library(lmtest)
+library(here)
+library(tidyverse)
+
+# Source OR calculation function
+source(here("sme-2026", "functions", "or_function.R"))
+
+# Set options for cleaner output
+options(digits = 3, scipen = 999)
+```
+
+Note the `source()` function -- this is reading in a function to easily calculate the OR and 95% CI from a 2x2 table -- you need to input the result from the table command. As before, the read-in assumes that you have stored the .R file in a subfolder called 'functions' and you may need to adjust this.
+
+---
+
+# Data Import and Preparation
+
+The data are in the dataset mortality.dta. The outcome variable is died, which is coded as 1 for an individual who has died and 0 for an individual who is alive after 3 years of follow-up. Analyze this data set treating it as a cohort study with fixed follow-up time (i.e., assume that all individuals were followed for the same length of time and analyze the data using odds).
+
+```{r import}
+# Import data
+mortality <- read_stata(here("sme-2026/data", "mortality.dta")) |> 
+  mutate(across(where(is.labelled), as_factor))
+
+# Examine structure
+glimpse(mortality)
+```
+
+---
+
+# Question 3: Examine the Association Between Visual Impairment and Death
+
+Use tables to examine the association between died and vimp. Construct a table showing the results of this analysis and write a sentence or two summarizing the association of visual impairment with death.
+
+```{r q3_crosstabs}
+# Cross-tabulation with row percentages
+mortality |> 
+  count(vimp, died) |> 
+  group_by(vimp) |> 
+  mutate(percentage = n / sum(n) * 100,
+         n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(vimp, died, n_pct) |> 
+  pivot_wider(names_from = died, values_from = n_pct) 
+
+# Simple 2x2 table
+tab_vimp <- table(mortality$vimp, mortality$died)
+tab_vimp
+
+# Calculate odds ratio
+calculate_or(tab_vimp)
+
+```
+
+---
+
+# Question 4: Logistic Regression for Visual Impairment
+
+Perform a logistic regression to examine the association between visual impairment and death. Check that the output corresponds to that in the lecture notes.
+
+To perform a logistic regression (and other models within the generalized linear modeling framework) in R, we use the `glm()` command. This involves specifying a formula: on the left-hand side (LHS) of the formula should be the outcome and on the right-hand side (RHS) the exposure and covariates. So we read the formula below as 'predict the probability of the outcome died from the exposure vimp'.
+
+The `family` argument tells R that you would like a logistic regression and not some other kind of model (that you will see later in the course), assuming a binomial distribution for the binary outcome.
+
+```{r q4_logistic}
+# Logistic regression
+mod_vimp <- glm(died ~ vimp, family = binomial, data = mortality)
+
+# Display with odds ratios and 95% CIs
+mod_vimp |> 
+  tbl_regression(
+    exponentiate = TRUE, 
+    label = list(vimp = "Visual impairment")
+  )
+```
+From this output, we can get:
+
+- An OR with 95% CI for outcome in exposed vs unexposed
+- P-value for a Wald test (null hypothesis: the vimp coefficient = 0) 
+- P-value for an LR test (null hypothesis: the model fits no better than the null model)
+- The number of observations
+
+The baseline term (intercept) represents the odds of outcome in the baseline group of the variable – so in this example it is the odds of death amongst those visually unimpaired.
+
+The confidence interval is derived using the standard error for the log odds ratio, as shown in the lecture.
+
+---
+
+# Question 8: Explore Microfilarial Infection and Death
+
+Use the tab command to examine the association between microfilarial infection with 4 levels (mfgrp) and death. Are column or row percentages more appropriate in your table?
+
+Exposure: microfilarial load/mg - mfgrp (categorical variable: Uninfected, <10, 10-49, ≥50, NA)
+
+```{r q8_mfgrp_explore}
+# Summary of categorical data
+mortality |> count(mfgrp)
+
+# Cross-tabulation with row percentages
+mortality |> 
+  count(mfgrp, died) |> 
+  group_by(mfgrp) |> 
+  mutate(percentage = n / sum(n) * 100,
+         n_pct = sprintf("%d (%.1f%%)", n, percentage)) |> 
+  select(mfgrp, died, n_pct) |> 
+  pivot_wider(names_from = died, values_from = n_pct) 
+
+# How would you alter the code above to drop the missing rows missing mfgrp information?
+
+```
+
+---
+
+# Question 9: Logistic Regression with Categorical Exposure
+
+As explained in the lecture, we need to examine the association between microfilarial load (4 levels) and death using logistic regression. 
+
+Now explore the same with logistic regression. Unlike Stata, R understands that the mfgrp variable is categorical (this is indicated by the factor type), so there is no need to use a prefix like 'i.' to indicate this. Check you can interpret the ORs from this analysis.
+
+```{r q9_mfgrp_logistic}
+# Check the type of the categorical exposure is a factor
+class(mortality$mfgrp)
+
+# Logistic regression with categorical exposure
+mod_mfgrp <- glm(died ~ mfgrp, family = binomial, data = mortality)
+
+mod_mfgrp |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(mfgrp = "Microfilarial load"))
+
+```
+
+Note that there are three odds ratios each of which refers to the same baseline group (those uninfected). The odds ratio is:
+
+- 1.69 for those with microfilarial load <10 mf/mg compared to those uninfected
+- 1.46 for those with microfilarial load 10-49 mf/mg compared to those uninfected
+- 2.05 for those with microfilarial load ≥50 mf/mg compared to those uninfected
+
+There are three Wald test p-values (one for each odds ratio) which test whether each odds ratio is different to one.
+
+The likelihood ratio statistic tests the association between the variable mfgrp and the outcome, death, by simultaneously testing all three parameters in the model (the estimates of the log odds ratios for microfilarial load groups 1, 2 and 3 versus microfilarial load level 0).
+
+---
+
+# Question 13: Likelihood Ratio Test with Missing Data
+
+We will now conduct a likelihood ratio test for mfgrp. To do this, we need to compare the log likelihood from the model with mfgrp (L1) and the log likelihood from the model without mfgrp (L0).
+
+In Stata, you use `estimates store` to save model results. In R, we simply save models as objects (like `mod_0` and `mod_1`), which we can then compare using `lrtest()`.
+
+To perform a likelihood ratio test (LRT), you need to use `lrtest()` to compare the log likelihood from a logistic regression model *with* the variable of interest (that you have already defined) and the log likelihood from a logistic regression model *without* the variable.
+
+Caution: mfgrp has missing data, so the null model would have more observations than the full model - and the LRT test can only work when the two models have the same number of observations. So you need to ensure that the samples for the two models are the same - we do this by using the `drop_na()` command, which removes rows where the specified variable is NA.
+
+```{r q13_lrt}
+# Check for missing values
+mortality |> count(mfgrp)
+
+# Null model on complete cases
+# The _ placeholder tells R where to put the piped data
+mod_0 <- mortality |> 
+  drop_na(mfgrp) |> 
+  glm(died ~ 1, family = binomial, data = _)
+
+# Full model (missing values automatically removed)
+mod_1 <- glm(died ~ mfgrp, family = binomial, data = mortality)
+
+# Likelihood ratio test
+lrtest(mod_0, mod_1)
+
+```
+
+**The `_` placeholder:** This tells R to use the piped data as the `data` argument to `glm()` (rather than as the first argument, which is the formula). This is needed because the data we want to use has been modified by the pipe.
+
+Note that the p-value from this `lrtest()` command: the null hypothesis is that the log-likelihood of the two models is the same (interpreted as the model fit being the same) and this quantifies the strength of evidence that the log-likelihood is further maximized by including the covariate of interest.
+
+---
+
+# Question 14: Age and Death, Adjusting for Confounding
+
+```{r q14_age}
+# Logistic regression for age
+mod_age <- glm(died ~ agegrp, family = binomial, data = mortality)
+
+mod_age |> 
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(agegrp = "Age group"))
+
+```
+
+Now fit a model with both vimp and agegrp as explanatory variables. Have the coefficients changed from those in the models with each variable alone?
+
+```{r q14_adjusted}
+# Logistic regression with exposure and covariate
+mod_adjusted <- glm(died ~ vimp + agegrp, family = binomial, data = mortality)
+
+# Compare unadjusted and adjusted models side by side
+tbl_merge(
+  list(
+    tbl_regression(mod_vimp, 
+                   exponentiate = TRUE, 
+                   include = vimp,
+                   label = list(vimp = "Visual impairment")),
+    tbl_regression(mod_adjusted, 
+                   exponentiate = TRUE, 
+                   include = vimp,
+                   label = list(vimp = "Visual impairment"))
+  ),
+  tab_spanner = c("**Unadjusted**", "**Adjusted for age**")
+)
+```
+
+The key coefficient here to interpret is the adjusted OR for the vimp coefficient. This tells us that the odds of death are 2.2 times higher in people who are visually impaired compared to people who are not (avoiding the dataset's stigmatising language of 'normal'...!) after adjusting for age. This is compared to not adjusting for age, where the unadjusted OR is 5.57. So we conclude there is likely to be strong confounding by age.
+
+Note that we are implicitly here not interested in interpreting directly the coefficients for age because our (implicitly causal) question is about visual impairment and not about age, which is just a confounding factor. Interpreting the age coefficients here would make no sense since visual impairment cannot confound the relationship between age and death. Interpreting the age coefficient as meaningful in and of itself is meaningless, and this is known as the (surprisingly common!) Table 2 fallacy.
+
+---
+
+# Key R Functions Used
+
+- `glm(family = binomial)`: Logistic regression for binary outcomes
+- `tbl_regression()`: Display regression results with ORs and CIs
+- `tbl_merge()`: Display multiple models side-by-side
+- `lrtest()`: Likelihood ratio test for nested models
+- `drop_na()`: Remove rows with missing values for specified variables
+- `calculate_or()`: Custom function to calculate OR from 2×2 table

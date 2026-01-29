@@ -207,7 +207,6 @@ q9
 
 ## Log Likelihoods
 
-
 ## Question 10
 
 Use `bloglik()` to plot the exact and approximate log likelihoods for π (the probability of event) when there are 4 events and 6 non-events. Make sure you understand the meaning of all of the output.
