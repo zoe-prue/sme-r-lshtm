@@ -155,7 +155,7 @@ glm(died ~ mfpos + agegrp, # the + is for adding agegrp as a confounder
   tbl_regression(exponentiate = TRUE)
 # OR = 1.51
 
-# ANSWER: yes we can calcualte an adjusted OR bc the crude differed fromt he pooled M-H OR
+# ANSWER: yes we can calculate an adjusted OR bc the crude differed from the pooled M-H OR
 # age seems to be an effect modifier bc logistic regression OR differs greatly between age strata
 # when representing the association between mfpos and death
 

@@ -35,7 +35,10 @@ library(gmodels)
 setwd("~/Desktop/sme-r-lshtm/")
 
 # Read the Whitehall dataset
-mortality <- read_stata("raw-data/mortality.dta")
+mortality <- read_dta("raw-data/mortality.dta") |>
+  mutate(across(where(is.labelled), as.factor))
+
+# sapply(mortality, class)
 
 source(here("scripts", "or_function.R"))
 
@@ -131,7 +134,8 @@ sum(mortality$occupation == "Manual")
 # The median height was 159 cm.
 # The highest proportion of participants lived in the Kauru district.
 
-# 5.How many outcomes were identified during the three years of follow-up? What is the mortality risk over three years?
+# 5.How many outcomes were identified during the three years of follow-up?
+# What is the mortality risk over three years?
 
 names(mortality)
 
@@ -203,7 +207,7 @@ calculate_or(tab_vimp)
 # FACTORING DISTRICT
 
 class(mortality$district)
-mortality_district
+# mortality_district
 
 # district total percent
 #   <chr>    <int>   <dbl>
@@ -218,6 +222,7 @@ mortality <- mortality |>
       levels = c("Kahugu", "Kakangi", "Kauru", "Lere", "Randagi")))
 
 table(unique(mortality)$district) 
+class(mortality$district)
 
 # Kahugu Kakangi   Kauru    Lere Randagi 
 # 384     369    1786    1601     158 
@@ -232,8 +237,8 @@ typeof(mortality$ethnic)
 table(unique(mortality)$ethnic)
 
 mortality <- mortality |>
-  mutate(
-    ethnic = case_when( 
+  mutate(ethnic2 = factor(
+    case_when( 
       ethnic %in% c(1) ~ "Hausa",
       ethnic %in% c(2) ~ "Fulani",
       ethnic %in% c(3) ~ "Kamuku",
@@ -242,14 +247,15 @@ mortality <- mortality |>
       ethnic %in% c(7) ~ "Surubu",
       ethnic %in% c(8) ~ "Gure",
       ethnic %in% c(9) ~ "Other"
-    )#,
+    )),
     # ethnic = factor(
     #   ethnic,
     #   levels = c("Manual", "Professional", "Non-Labor", "Other")
     # )
   )
 
-table(unique(mortality)$ethnic)
+table(unique(mortality)$ethnic2)
+class(mortality$ethnic2)
 
 # FACTORING RELIGION
 
@@ -259,13 +265,14 @@ table(unique(mortality)$religion)
 typeof(mortality$religion)
 
 mortality <- mortality |>
-  mutate(
-    religion = case_when( 
+  mutate(religion2 = factor(
+    case_when( 
       religion %in% c(1) ~ "Muslim",
       religion %in% c(2) ~ "Christian",
-      religion %in% c(3) ~ "Traditional"))
+      religion %in% c(3) ~ "Traditional")))
 
 table(unique(mortality)$religion)
+class(mortality$religion)
 
 # FACTORING EDUCATION
 
@@ -350,15 +357,7 @@ make_strat_table(height)
 make_strat_table(religion)
 # etc.
 
-
-
 # 4.	Write a few sentences summarising these unadjusted associations.
-
-
-
-
-
-
 
 #######################
 

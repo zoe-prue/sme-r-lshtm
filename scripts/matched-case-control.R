@@ -269,6 +269,7 @@ mod_adj <- clogit(case ~ not_breastfed + social_f + meduc_f + strata(set),
 mod_adj |> 
   tbl_regression(exponentiate = TRUE)
 # OR = 4.28
+# social and/or meduc could be confounders
 
 # compare across the models:
 
@@ -292,12 +293,4 @@ tbl_merge(
 # between not breastfeeding and death by diarrhea
 # and the OR increases when adjusting for the confounders
 # in the conditional logistic regression model
-
-
-
-
-
-
-
-
 
